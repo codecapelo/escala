@@ -1,23 +1,538 @@
-import {useEffect,useState,type FormEvent} from 'react';
-import {Clock3,ShieldCheck,LogOut,RefreshCw,UserRoundCheck,Check,X,Link2,Plus,Info,Stethoscope} from 'lucide-react';
-import {api,post,patch,message} from './api';
-import {useResource} from './hooks';
-import {Logo,Avatar,Spinner,ErrorBox,Empty,Modal,Field,Submit,Confirm} from './ui';
-import {isApproved,crmLabel,timeZone} from './utils';
-import type {Auth,Doctor,Registration,User} from './types';
-export function RegistrationStatus({auth,onAuth,onLogout}:{auth:Auth;onAuth:(a:Auth)=>void;onLogout:()=>void}){
- const[registration,setRegistration]=useState<Registration|null>(auth.registration||null),[checking,setChecking]=useState(false),[error,setError]=useState('');const rejected=auth.user.approval_status==='rejected'||registration?.status==='rejected';
- async function check(){setChecking(true);setError('');try{const current=await api<Auth>('/auth/me');if(isApproved(current.user)){onAuth(current);return;}const status=await api<{registration:Registration}>('/registrations/me');setRegistration(status.registration);}catch(e){setError(message(e));}finally{setChecking(false);}}
- useEffect(()=>{void check();const timer=setInterval(()=>{if(document.visibilityState==='visible')void check();},30000);return()=>clearInterval(timer);},[]);
- return <main className="registration-waiting"><header><Logo/><button className="button button-secondary" onClick={onLogout}><LogOut size={16}/>Sair</button></header><section className="registration-status-card"><span className={`registration-status-icon ${rejected?'rejected':''}`}>{rejected?<Info size={30}/>:<Clock3 size={30}/>}</span><span className="eyebrow">SEU ACESSO AO PORTAL</span><h1>{rejected?'Seu cadastro precisa de atenção.':'Cadastro recebido. O próximo passo é com a coordenação.'}</h1><p>{rejected?'A coordenação analisou sua solicitação e não liberou o vínculo. Confira a orientação abaixo e entre em contato com a equipe responsável.':'Seus dados profissionais serão conferidos antes da liberação. Assim que o vínculo médico for aprovado, sua escala ficará disponível neste acesso.'}</p><div className="registration-person"><Avatar name={auth.user.name}/><div><strong>{auth.user.name}</strong><span>{auth.user.email}</span>{registration&&<small>CRM {registration.crm}/{registration.crm_uf}</small>}</div><span className={`status-pill ${rejected?'status-muted':'status-warm'}`}><span/>{rejected?'Não aprovado':'Em análise'}</span></div>{registration?.decision_note&&<div className="workflow-decision"><strong>Orientação da coordenação</strong><p>{registration.decision_note}</p></div>}{error&&<ErrorBox>{error}</ErrorBox>}<button className="button button-primary" onClick={check} disabled={checking}><RefreshCw size={16} className={checking?'spin':''}/>{checking?'Conferindo aprovação…':'Verificar aprovação'}</button><div className="workflow-helper"><ShieldCheck size={15}/><span>O acompanhamento é atualizado automaticamente. Seu cadastro permanece protegido enquanto aguarda aprovação.</span></div></section><footer>Amil Telemedicina · Cuidado que conecta</footer></main>;
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  Clock3,
+  ShieldCheck,
+  LogOut,
+  RefreshCw,
+  UserRoundCheck,
+  Check,
+  X,
+  Link2,
+  Plus,
+  Info,
+  Stethoscope,
+} from "lucide-react";
+import { api, post, patch, message } from "./api";
+import { useResource } from "./hooks";
+import {
+  Logo,
+  Avatar,
+  Spinner,
+  ErrorBox,
+  Empty,
+  Modal,
+  Field,
+  Submit,
+  Confirm,
+} from "./ui";
+import { isApproved, crmLabel, timeZone } from "./utils";
+import type { Auth, Doctor, Registration, User } from "./types";
+export function RegistrationStatus({
+  auth,
+  onAuth,
+  onLogout,
+}: {
+  auth: Auth;
+  onAuth: (a: Auth) => void;
+  onLogout: () => void;
+}) {
+  const [registration, setRegistration] = useState<Registration | null>(
+      auth.registration || null,
+    ),
+    [checking, setChecking] = useState(false),
+    [error, setError] = useState("");
+  const rejected =
+    auth.user.approval_status === "rejected" ||
+    registration?.status === "rejected";
+  async function check() {
+    setChecking(true);
+    setError("");
+    try {
+      const current = await api<Auth>("/auth/me");
+      if (isApproved(current.user)) {
+        onAuth(current);
+        return;
+      }
+      const status = await api<{ registration: Registration }>(
+        "/registrations/me",
+      );
+      setRegistration(status.registration);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+  useEffect(() => {
+    void check();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void check();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <main className="registration-waiting">
+      <header>
+        <Logo />
+        <button className="button button-secondary" onClick={onLogout}>
+          <LogOut size={16} />
+          Sair
+        </button>
+      </header>
+      <section className="registration-status-card">
+        <span
+          className={`registration-status-icon ${rejected ? "rejected" : ""}`}
+        >
+          {rejected ? <Info size={30} /> : <Clock3 size={30} />}
+        </span>
+        <span className="eyebrow">SEU ACESSO AO PORTAL</span>
+        <h1>
+          {rejected
+            ? "Seu cadastro precisa de atenção."
+            : "Cadastro recebido. O próximo passo é com a coordenação."}
+        </h1>
+        <p>
+          {rejected
+            ? "A coordenação analisou sua solicitação e não liberou o vínculo. Confira a orientação abaixo e entre em contato com a equipe responsável."
+            : "Seus dados profissionais serão conferidos antes da liberação. Assim que o vínculo médico for aprovado, sua escala ficará disponível neste acesso."}
+        </p>
+        <div className="registration-person">
+          <Avatar name={auth.user.name} />
+          <div>
+            <strong>{auth.user.name}</strong>
+            <span>{auth.user.email}</span>
+            {registration && (
+              <small>
+                CRM {registration.crm}/{registration.crm_uf}
+              </small>
+            )}
+          </div>
+          <span
+            className={`status-pill ${rejected ? "status-muted" : "status-warm"}`}
+          >
+            <span />
+            {rejected ? "Não aprovado" : "Em análise"}
+          </span>
+        </div>
+        {registration?.decision_note && (
+          <div className="workflow-decision">
+            <strong>Orientação da coordenação</strong>
+            <p>{registration.decision_note}</p>
+          </div>
+        )}
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <button
+          className="button button-primary"
+          onClick={check}
+          disabled={checking}
+        >
+          <RefreshCw size={16} className={checking ? "spin" : ""} />
+          {checking ? "Conferindo aprovação…" : "Verificar aprovação"}
+        </button>
+        <div className="workflow-helper">
+          <ShieldCheck size={15} />
+          <span>
+            O acompanhamento é atualizado automaticamente. Seu cadastro
+            permanece protegido enquanto aguarda aprovação.
+          </span>
+        </div>
+      </section>
+      <footer>Amil Telemedicina · Cuidado que conecta</footer>
+    </main>
+  );
 }
-export function RegistrationQueue({doctors,version,onChanged,notify}:{doctors:Doctor[];version:number;onChanged:()=>void;notify:(s:string)=>void}){
- const resource=useResource<{registrations:Registration[]}>('/registrations?status=pending',version);const[approve,setApprove]=useState<Registration|null>(null),[reject,setReject]=useState<Registration|null>(null);const rows=resource.data?.registrations||[];
- return <section className="workflow-section"><div className="workflow-section-heading"><div><span className="eyebrow">NOVOS VÍNCULOS, COM CONFERÊNCIA</span><h2>Cadastros aguardando aprovação</h2><p>Confira a identidade e selecione o cadastro médico correto antes de liberar o acesso.</p></div><span className="count-badge">{rows.length} pendentes</span></div><div className="notice"><ShieldCheck size={17}/><span>Nomes e CRMs informados no cadastro são conferidos pela coordenação. A aprovação concede acesso de médico; a gestão de escala é uma permissão independente.</span></div>{resource.loading&&!resource.data?<Spinner label="Buscando cadastros…"/>:resource.error?<ErrorBox retry={resource.reload}>{resource.error}</ErrorBox>:!rows.length?<div className="content-card"><Empty icon={<UserRoundCheck size={28}/>} title="Todos os cadastros conferidos" description="Novas solicitações de acesso aparecerão aqui para análise da coordenação."/></div>:<div className="registration-queue">{rows.map(r=><article key={r.id} className="registration-request"><div className="registration-request-top"><Avatar name={r.name}/><div><h3>{r.name}</h3><p>{r.email}</p><span>CRM {r.crm}/{r.crm_uf}</span></div><span className="status-pill status-warm"><span/>Em análise</span></div><div className="registration-match"><Link2 size={17}/><div><strong>{r.matched_doctor_name?'Possível cadastro na equipe':'Confirme o vínculo com a equipe'}</strong><p>{r.matched_doctor_name||'Escolha um médico existente ou crie um novo cadastro após confirmar a identidade.'}</p></div></div>{r.candidates&&r.candidates.length>1&&<p className="workflow-meta">{r.candidates.length} cadastros semelhantes encontrados. Confira o nome completo e o CRM.</p>}<div className="workflow-card-actions"><span className="workflow-meta">Solicitado em {new Date(r.created_at).toLocaleDateString('pt-BR',{timeZone})}</span><div className="button-row"><button className="button button-secondary" onClick={()=>setReject(r)}><X size={15}/>Não aprovar</button><button className="button button-primary" onClick={()=>setApprove(r)}><Check size={16}/>Conferir e aprovar</button></div></div></article>)}</div>}{approve&&<ApproveRegistration registration={approve} doctors={doctors} onClose={()=>setApprove(null)} onSaved={()=>{onChanged();notify('Vínculo aprovado. O médico já pode acessar a escala.');}}/>}{reject&&<Confirm title="Não aprovar este cadastro?" description={`Registre a orientação para ${reject.name}. A pessoa poderá consultar o motivo ao entrar no portal.`} reason confirmLabel="Registrar decisão" onClose={()=>setReject(null)} onConfirm={async note=>{await post(`/registrations/${reject.id}/reject`,{note});onChanged();notify('Decisão registrada e disponível para o solicitante.');}}/>}</section>;
+export function RegistrationQueue({
+  doctors,
+  version,
+  onChanged,
+  notify,
+}: {
+  doctors: Doctor[];
+  version: number;
+  onChanged: () => void;
+  notify: (s: string) => void;
+}) {
+  const resource = useResource<{ registrations: Registration[] }>(
+    "/registrations?status=pending",
+    version,
+  );
+  const [approve, setApprove] = useState<Registration | null>(null),
+    [reject, setReject] = useState<Registration | null>(null);
+  const rows = resource.data?.registrations || [];
+  return (
+    <section className="workflow-section">
+      <div className="workflow-section-heading">
+        <div>
+          <span className="eyebrow">NOVOS VÍNCULOS, COM CONFERÊNCIA</span>
+          <h2>Cadastros aguardando aprovação</h2>
+          <p>
+            Confira a identidade e selecione o cadastro médico correto antes de
+            liberar o acesso.
+          </p>
+        </div>
+        <span className="count-badge">{rows.length} pendentes</span>
+      </div>
+      <div className="notice">
+        <ShieldCheck size={17} />
+        <span>
+          Nomes e CRMs informados no cadastro são conferidos pela coordenação. A
+          aprovação concede acesso de médico; a gestão de escala é uma permissão
+          independente.
+        </span>
+      </div>
+      {resource.loading && !resource.data ? (
+        <Spinner label="Buscando cadastros…" />
+      ) : resource.error ? (
+        <ErrorBox retry={resource.reload}>{resource.error}</ErrorBox>
+      ) : !rows.length ? (
+        <div className="content-card">
+          <Empty
+            icon={<UserRoundCheck size={28} />}
+            title="Todos os cadastros conferidos"
+            description="Novas solicitações de acesso aparecerão aqui para análise da coordenação."
+          />
+        </div>
+      ) : (
+        <div className="registration-queue">
+          {rows.map((r) => (
+            <article key={r.id} className="registration-request">
+              <div className="registration-request-top">
+                <Avatar name={r.name} />
+                <div>
+                  <h3>{r.name}</h3>
+                  <p>{r.email}</p>
+                  <span>
+                    CRM {r.crm}/{r.crm_uf}
+                  </span>
+                </div>
+                <span className="status-pill status-warm">
+                  <span />
+                  Em análise
+                </span>
+              </div>
+              <div className="registration-match">
+                <Link2 size={17} />
+                <div>
+                  <strong>
+                    {r.matched_doctor_name
+                      ? "Possível cadastro na equipe"
+                      : "Confirme o vínculo com a equipe"}
+                  </strong>
+                  <p>
+                    {r.matched_doctor_name ||
+                      "Escolha um médico existente ou crie um novo cadastro após confirmar a identidade."}
+                  </p>
+                </div>
+              </div>
+              {r.candidates && r.candidates.length > 1 && (
+                <p className="workflow-meta">
+                  {r.candidates.length} cadastros semelhantes encontrados.
+                  Confira o nome completo e o CRM.
+                </p>
+              )}
+              <div className="workflow-card-actions">
+                <span className="workflow-meta">
+                  Solicitado em{" "}
+                  {new Date(r.created_at).toLocaleDateString("pt-BR", {
+                    timeZone,
+                  })}
+                </span>
+                <div className="button-row">
+                  <button
+                    className="button button-secondary"
+                    onClick={() => setReject(r)}
+                  >
+                    <X size={15} />
+                    Não aprovar
+                  </button>
+                  <button
+                    className="button button-primary"
+                    onClick={() => setApprove(r)}
+                  >
+                    <Check size={16} />
+                    Conferir e aprovar
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {approve && (
+        <ApproveRegistration
+          registration={approve}
+          doctors={doctors}
+          onClose={() => setApprove(null)}
+          onSaved={() => {
+            onChanged();
+            notify("Vínculo aprovado. O médico já pode acessar a escala.");
+          }}
+        />
+      )}
+      {reject && (
+        <Confirm
+          title="Não aprovar este cadastro?"
+          description={`Registre a orientação para ${reject.name}. A pessoa poderá consultar o motivo ao entrar no portal.`}
+          reason
+          confirmLabel="Registrar decisão"
+          onClose={() => setReject(null)}
+          onConfirm={async (note) => {
+            await post(`/registrations/${reject.id}/reject`, { note });
+            onChanged();
+            notify("Decisão registrada e disponível para o solicitante.");
+          }}
+        />
+      )}
+    </section>
+  );
 }
-function ApproveRegistration({registration:r,doctors,onClose,onSaved}:{registration:Registration;doctors:Doctor[];onClose:()=>void;onSaved:()=>void}){
- const[mode,setMode]=useState<'existing'|'new'>('existing'),[doctor,setDoctor]=useState(()=>{const free=(r.candidates||[]).filter(c=>c.active&&!c.user_id&&doctors.some(d=>d.id===c.id&&d.active&&!d.user_id));return r.matched_doctor_id&&doctors.some(d=>d.id===r.matched_doctor_id&&d.active&&!d.user_id)?r.matched_doctor_id:free.length===1?free[0].id:'';}),[busy,setBusy]=useState(false),[error,setError]=useState('');const selected=doctors.find(d=>d.id===doctor);const candidates=r.candidates||[];
- async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setError('');const f=new FormData(e.currentTarget);try{await post(`/registrations/${r.id}/approve`,{...(mode==='new'?{create_doctor:true}:{doctor_id:doctor}),note:String(f.get('note')||'').trim(),can_manage_schedule:f.get('manage')==='on'});onSaved();onClose();}catch(e){setError(message(e));setBusy(false);}}
- return <Modal title="Confirmar vínculo médico" subtitle="A liberação do acesso depende desta conferência." onClose={onClose} wide><form onSubmit={submit}><div className="modal-body workflow-form"><div className="workflow-person-summary"><Avatar name={r.name}/><div><h3>{r.name}</h3><p>{r.email}</p><strong>CRM {r.crm}/{r.crm_uf}</strong></div></div><div className="workflow-mode-switch"><button type="button" className={mode==='existing'?'active':''} aria-pressed={mode==='existing'} onClick={()=>setMode('existing')}><Link2 size={16}/>Vincular à equipe</button><button type="button" className={mode==='new'?'active':''} aria-pressed={mode==='new'} onClick={()=>setMode('new')}><Plus size={16}/>Novo cadastro médico</button></div>{mode==='existing'?<><Field label="Cadastro médico que receberá o vínculo" hint="Cadastros com conta vinculada não estão disponíveis. Se houver dúvida, confirme a identidade antes de aprovar."><select required value={doctor} onChange={e=>setDoctor(e.target.value)}><option value="">Selecione o cadastro correto</option>{doctors.filter(d=>d.active&&!d.user_id).map(d=><option key={d.id} value={d.id}>{d.name} · {crmLabel(d)}{candidates.some(c=>c.id===d.id)?' · possível correspondência':''}</option>)}</select></Field>{selected&&<div className="workflow-link-preview"><Stethoscope size={19}/><div><strong>{selected.name}</strong><span>{crmLabel(selected)}</span><small>Os plantões existentes deste cadastro serão preservados.</small></div></div>}</>:<div className="notice notice-warm"><Info size={18}/><span>Será criado um cadastro médico com o nome e o CRM informados nesta inscrição. Confira se essa pessoa já existe na equipe para evitar duplicidade.</span></div>}<label className="workflow-checkbox"><input type="checkbox" name="manage"/><span><strong>Permitir gerenciar a escala</strong><small>Permite criar e editar plantões e alocações. A pessoa continua com o papel Médico, sem administrar usuários, aprovações ou fechamento mensal.</small></span></label><Field label="Nota da aprovação (opcional)"><textarea name="note" rows={3} maxLength={1000} placeholder="Como o vínculo foi confirmado?"/></Field><label className="workflow-checkbox"><input type="checkbox" required/><span>Conferi a identidade e confirmo o vínculo selecionado para liberar o acesso.</span></label>{error&&<ErrorBox>{error}</ErrorBox>}</div><div className="modal-footer"><button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>Voltar</button><Submit busy={busy}>Aprovar acesso de médico</Submit></div></form></Modal>;
+function ApproveRegistration({
+  registration: r,
+  doctors,
+  onClose,
+  onSaved,
+}: {
+  registration: Registration;
+  doctors: Doctor[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<"existing" | "new">("existing"),
+    [doctor, setDoctor] = useState(() => {
+      const free = (r.candidates || []).filter(
+        (c) =>
+          c.active &&
+          !c.user_id &&
+          doctors.some((d) => d.id === c.id && d.active && !d.user_id),
+      );
+      return r.matched_doctor_id &&
+        doctors.some(
+          (d) => d.id === r.matched_doctor_id && d.active && !d.user_id,
+        )
+        ? r.matched_doctor_id
+        : free.length === 1
+          ? free[0].id
+          : "";
+    }),
+    [busy, setBusy] = useState(false),
+    [confirmed, setConfirmed] = useState(false),
+    [error, setError] = useState("");
+  const selected = doctors.find((d) => d.id === doctor);
+  const candidates = r.candidates || [];
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const f = new FormData(e.currentTarget);
+    try {
+      await post(`/registrations/${r.id}/approve`, {
+        ...(mode === "new" ? { create_doctor: true } : { doctor_id: doctor }),
+        note: String(f.get("note") || "").trim(),
+        can_manage_schedule: f.get("manage") === "on",
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(message(e));
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title="Confirmar vínculo médico"
+      subtitle="A liberação do acesso depende desta conferência."
+      onClose={onClose}
+      wide
+    >
+      <form onSubmit={submit}>
+        <div className="modal-body workflow-form">
+          <div className="workflow-person-summary">
+            <Avatar name={r.name} />
+            <div>
+              <h3>{r.name}</h3>
+              <p>{r.email}</p>
+              <strong>
+                CRM {r.crm}/{r.crm_uf}
+              </strong>
+            </div>
+          </div>
+          <div className="workflow-mode-switch">
+            <button
+              type="button"
+              className={mode === "existing" ? "active" : ""}
+              aria-pressed={mode === "existing"}
+              onClick={() => setMode("existing")}
+            >
+              <Link2 size={16} />
+              Vincular à equipe
+            </button>
+            <button
+              type="button"
+              className={mode === "new" ? "active" : ""}
+              aria-pressed={mode === "new"}
+              onClick={() => setMode("new")}
+            >
+              <Plus size={16} />
+              Novo cadastro médico
+            </button>
+          </div>
+          {mode === "existing" ? (
+            <>
+              <Field
+                label="Cadastro médico que receberá o vínculo"
+                hint="Cadastros com conta vinculada não estão disponíveis. Se houver dúvida, confirme a identidade antes de aprovar."
+              >
+                <select
+                  required
+                  value={doctor}
+                  onChange={(e) => setDoctor(e.target.value)}
+                >
+                  <option value="">Selecione o cadastro correto</option>
+                  {doctors
+                    .filter((d) => d.active && !d.user_id)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} · {crmLabel(d)}
+                        {candidates.some((c) => c.id === d.id)
+                          ? " · possível correspondência"
+                          : ""}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              {selected && (
+                <div className="workflow-link-preview">
+                  <Stethoscope size={19} />
+                  <div>
+                    <strong>{selected.name}</strong>
+                    <span>{crmLabel(selected)}</span>
+                    <small>
+                      Os plantões existentes deste cadastro serão preservados.
+                    </small>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="notice notice-warm">
+              <Info size={18} />
+              <span>
+                Será criado um cadastro médico com o nome e o CRM informados
+                nesta inscrição. Confira se essa pessoa já existe na equipe para
+                evitar duplicidade.
+              </span>
+            </div>
+          )}
+          <label className="workflow-checkbox workflow-confirm">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+            />
+            <span>
+              <strong>
+                Conferi a identidade e confirmo o vínculo selecionado.
+              </strong>
+              <small>Marque para liberar o botão de aprovação.</small>
+            </span>
+          </label>
+          <label className="workflow-checkbox">
+            <input type="checkbox" name="manage" />
+            <span>
+              <strong>Permitir gerenciar a escala</strong>
+              <small>
+                Permite criar e editar plantões e alocações. A pessoa continua
+                com o papel Médico, sem administrar usuários, aprovações ou
+                fechamento mensal.
+              </small>
+            </span>
+          </label>
+          <Field label="Nota da aprovação (opcional)">
+            <textarea
+              name="note"
+              rows={3}
+              maxLength={1000}
+              placeholder="Como o vínculo foi confirmado?"
+            />
+          </Field>
+          {error && <ErrorBox>{error}</ErrorBox>}
+        </div>
+        <div className="modal-footer">
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Voltar
+          </button>
+          <Submit
+            busy={busy}
+            disabled={!confirmed || (mode === "existing" && !doctor)}
+          >
+            Aprovar acesso de médico
+          </Submit>
+        </div>
+      </form>
+    </Modal>
+  );
 }
-export function SchedulePermission({user,onChanged,notify}:{user:User;onChanged:()=>void;notify:(s:string)=>void}){const[confirm,setConfirm]=useState(false);const allowed=!!user.can_manage_schedule;if(user.role!=='doctor'||!isApproved(user))return <span className="workflow-meta">{user.role==='doctor'?'Aguardando aprovação':'Pelo papel administrativo'}</span>;return <><button className={`workflow-permission ${allowed?'enabled':''}`} onClick={()=>setConfirm(true)} aria-label={`${allowed?'Revogar':'Conceder'} gestão de escala para ${user.name}`}><span className="workflow-toggle" aria-hidden="true"/><span>{allowed?'Pode gerenciar':'Somente consulta'}</span></button>{confirm&&<Confirm title={allowed?'Revogar gestão de escala?':'Permitir gerenciar a escala?'} description={allowed?`${user.name} continuará como médico, com acesso aos plantões e repasses, e deixará de editar a escala. A pessoa precisará entrar novamente.`:`${user.name} poderá criar, editar e excluir plantões e alocações. O papel continuará Médico, sem acesso à gestão de contas, aprovações ou fechamento mensal. A pessoa precisará entrar novamente.`} onClose={()=>setConfirm(false)} confirmLabel={allowed?'Revogar permissão':'Conceder permissão'} onConfirm={async()=>{await patch(`/team/${user.id}/permissions`,{can_manage_schedule:!allowed});onChanged();notify(allowed?'Permissão de gestão de escala revogada.':'Gestão de escala permitida. O papel permanece Médico.');}}/>}</>}
+export function SchedulePermission({
+  user,
+  onChanged,
+  notify,
+}: {
+  user: User;
+  onChanged: () => void;
+  notify: (s: string) => void;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const allowed = !!user.can_manage_schedule;
+  if (user.role !== "doctor" || !isApproved(user))
+    return (
+      <span className="workflow-meta">
+        {user.role === "doctor"
+          ? "Aguardando aprovação"
+          : "Pelo papel administrativo"}
+      </span>
+    );
+  return (
+    <>
+      <button
+        className={`workflow-permission ${allowed ? "enabled" : ""}`}
+        onClick={() => setConfirm(true)}
+        aria-label={`${allowed ? "Revogar" : "Conceder"} gestão de escala para ${user.name}`}
+      >
+        <span className="workflow-toggle" aria-hidden="true" />
+        <span>{allowed ? "Pode gerenciar" : "Somente consulta"}</span>
+      </button>
+      {confirm && (
+        <Confirm
+          title={
+            allowed
+              ? "Revogar gestão de escala?"
+              : "Permitir gerenciar a escala?"
+          }
+          description={
+            allowed
+              ? `${user.name} continuará como médico, com acesso aos plantões e repasses, e deixará de editar a escala. A pessoa precisará entrar novamente.`
+              : `${user.name} poderá criar, editar e excluir plantões e alocações. O papel continuará Médico, sem acesso à gestão de contas, aprovações ou fechamento mensal. A pessoa precisará entrar novamente.`
+          }
+          onClose={() => setConfirm(false)}
+          confirmLabel={allowed ? "Revogar permissão" : "Conceder permissão"}
+          onConfirm={async () => {
+            await patch(`/team/${user.id}/permissions`, {
+              can_manage_schedule: !allowed,
+            });
+            onChanged();
+            notify(
+              allowed
+                ? "Permissão de gestão de escala revogada."
+                : "Gestão de escala permitida. O papel permanece Médico.",
+            );
+          }}
+        />
+      )}
+    </>
+  );
+}
