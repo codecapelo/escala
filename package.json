@@ -1,0 +1,39 @@
+{
+  "name": "amil-escala",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env.local server/dev.mjs",
+    "build": "tsc -b && vite build",
+    "start": "node --env-file-if-exists=.env.local server/dev.mjs",
+    "test": "node --env-file-if-exists=.env.local --test tests/*.test.mjs",
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
+    "db:import": "node --env-file-if-exists=.env.local scripts/import.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.3",
+    "@neon/env": "^1.6.4",
+    "@neondatabase/serverless": "^1.2.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "lucide-react": "^0.468.0",
+    "pg": "^8.16.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "serverless-http": "^3.2.0",
+    "ws": "^8.22.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.0"
+  }
+}
