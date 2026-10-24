@@ -47,9 +47,15 @@ export interface Offer {
   from_name: string;
   to_doctor_id: string | null;
   to_name: string | null;
-  status: "open" | "accepted" | "cancelled";
+  status: "open" | "pending" | "accepted" | "cancelled";
   created_at: string;
   accepted_at: string | null;
+  requested_doctor_id?: string | null;
+  requested_name?: string | null;
+  requested_at?: string | null;
+  approved_at?: string | null;
+  approved_by_name?: string | null;
+  decision_note?: string | null;
   date: string;
   start_time: string;
   end_time: string;
@@ -72,7 +78,13 @@ export interface Dashboard {
   audit: Audit[];
   locked: boolean;
   user: User;
-  stats: { shifts: number; hours: number; doctors: number; openOffers: number };
+  stats: {
+    shifts: number;
+    hours: number;
+    doctors: number;
+    openOffers: number;
+    pendingTransfers?: number;
+  };
 }
 export interface Invite {
   id: string;

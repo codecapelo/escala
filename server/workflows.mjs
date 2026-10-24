@@ -182,7 +182,7 @@ export function createWorkflowRouters({session,rateLimit,clientAddress,admin,mon
     if(c.type!=='remove_assignment')await Q.ensureNoOverlap(req.db,doctor.id,c.proposed,c.before.assignment_id||null);
     if(c.before.assignment_id){
      await req.db.query('UPDATE escala.assignments SET removed_at=now() WHERE id=$1',[c.before.assignment_id]);
-     await req.db.query("UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id=$1 AND status='open'",[c.before.assignment_id]);
+     await req.db.query("UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id=$1 AND status IN ('open','pending')",[c.before.assignment_id]);
     }
     after=c.type==='remove_assignment'?{removed_assignment_id:c.before.assignment_id}:await assignSlot(req.db,doctor.id,c.proposed,c.before.notes||'');
    }

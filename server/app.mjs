@@ -14,6 +14,7 @@ import {
 import * as V from "./validation.mjs";
 import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
+import { schedulePdf } from "./pdf.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 export const app = express();
 app.disable("x-powered-by");
@@ -356,6 +357,7 @@ app.get(
         ),
         doctors: doctors.filter((d) => d.active).length,
         openOffers: offers.filter((o) => o.status === "open").length,
+        pendingTransfers: offers.filter((o) => o.status === "pending").length,
       },
     });
   }),
@@ -460,7 +462,7 @@ app.patch(
       );
       if (body.date || body.start_time || body.end_time)
         await req.db.query(
-          "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id IN (SELECT id FROM escala.assignments WHERE shift_id=$1) AND status='open'",
+          "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id IN (SELECT id FROM escala.assignments WHERE shift_id=$1) AND status IN ('open','pending')",
           [id],
         );
       await Q.audit(
@@ -496,7 +498,7 @@ app.delete(
         [id],
       );
       await req.db.query(
-        "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id IN (SELECT id FROM escala.assignments WHERE shift_id=$1) AND status='open'",
+        "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id IN (SELECT id FROM escala.assignments WHERE shift_id=$1) AND status IN ('open','pending')",
         [id],
       );
       await Q.audit(
@@ -555,7 +557,7 @@ app.delete(
         [id],
       );
       await req.db.query(
-        "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id=$1 AND status='open'",
+        "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE assignment_id=$1 AND status IN ('open','pending')",
         [id],
       );
       await Q.audit(
@@ -624,7 +626,7 @@ app.post(
         )
       ).rows[0];
       if (!o)
-        fail(409, "Este plantão já foi assumido ou a oferta foi cancelada.");
+        fail(409, "Este plantão já foi assumido, está em análise ou a oferta foi cancelada.");
       const a = await Q.getAssignment(req.db, o.assignment_id);
       if (a.doctor_id !== o.from_doctor_id)
         fail(
@@ -639,28 +641,101 @@ app.post(
       const d = await Q.ensureDoctor(req.db, target);
       await Q.ensureNoOverlap(req.db, target, s);
       await req.db.query(
-        "UPDATE escala.assignments SET doctor_id=$1 WHERE id=$2",
-        [target, a.id],
-      );
-      await req.db.query(
-        "UPDATE escala.offers SET status='accepted',to_doctor_id=$1,accepted_at=now(),accepted_by=$2 WHERE id=$3",
+        "UPDATE escala.offers SET status='pending',requested_doctor_id=$1,requested_by=$2,requested_at=now() WHERE id=$3",
         [target, req.user.id, id],
       );
       await Q.audit(
         req.db,
         req.user,
-        "offer_accepted",
-        `${d.name} assumiu o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}–${s.end_time}.`,
-        {
-          offer_id: id,
-          assignment_id: a.id,
-          shift_id: s.id,
-          from_doctor_id: a.doctor_id,
-          from_name: a.doctor_name,
-          to_doctor_id: target,
-          to_name: d.name,
-        },
+        "offer_requested",
+        `${d.name} pediu para assumir o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}–${s.end_time}. Aguardando aprovação da administração.`,
+        { offer_id: id, assignment_id: a.id, shift_id: s.id, from_doctor_id: a.doctor_id, to_doctor_id: target },
         [a.doctor_id, target],
+        s.date.slice(0, 7),
+      );
+    });
+    res.json({ ok: true, status: "pending" });
+  }),
+);
+app.post(
+  "/api/offers/:id/approve",
+  route(async (req, res) => {
+    admin(req);
+    const id = idOf(req);
+    const b = V.z.object({ note: V.z.string().trim().max(1000).optional() }).strict().parse(req.body);
+    await transaction(req.db, async () => {
+      const o = (
+        await req.db.query(
+          "SELECT * FROM escala.offers WHERE id=$1 AND status='pending' FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!o) fail(409, "Este repasse não está aguardando aprovação.");
+      if (o.requested_by === req.user.id && req.user.role !== "owner")
+        fail(403, "Outro administrador precisa aprovar o seu pedido de repasse.");
+      const a = await Q.getAssignment(req.db, o.assignment_id);
+      if (a.doctor_id !== o.from_doctor_id)
+        fail(409, "O responsável por este plantão já mudou. Recuse o pedido.");
+      const s = await Q.getShift(req.db, a.shift_id);
+      await Q.ensureUnlocked(req.db, s.date);
+      Q.ensureFuture(s);
+      const d = await Q.ensureDoctor(req.db, o.requested_doctor_id);
+      await Q.ensureNoOverlap(req.db, o.requested_doctor_id, s);
+      await req.db.query(
+        "UPDATE escala.assignments SET doctor_id=$1 WHERE id=$2",
+        [o.requested_doctor_id, a.id],
+      );
+      await req.db.query(
+        "UPDATE escala.offers SET status='accepted',to_doctor_id=$1,accepted_by=$2,accepted_at=now(),approved_by=$3,approved_at=now(),decision_note=$4 WHERE id=$5",
+        [o.requested_doctor_id, o.requested_by, req.user.id, b.note || null, id],
+      );
+      await Q.audit(
+        req.db,
+        req.user,
+        "offer_approved",
+        `${req.user.name} aprovou o repasse: ${d.name} assumiu o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}–${s.end_time}.`,
+        {
+          offer_id: id, assignment_id: a.id, shift_id: s.id,
+          from_doctor_id: a.doctor_id, from_name: a.doctor_name,
+          to_doctor_id: o.requested_doctor_id, to_name: d.name,
+          requested_by: o.requested_by, approved_by: req.user.id, note: b.note || null,
+        },
+        [a.doctor_id, o.requested_doctor_id],
+        s.date.slice(0, 7),
+      );
+    });
+    res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/offers/:id/reject",
+  route(async (req, res) => {
+    admin(req);
+    const id = idOf(req);
+    const b = V.z.object({ note: V.z.string().trim().min(3).max(1000) }).strict().parse(req.body);
+    await transaction(req.db, async () => {
+      const o = (
+        await req.db.query(
+          "SELECT * FROM escala.offers WHERE id=$1 AND status='pending' FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!o) fail(409, "Este repasse não está aguardando aprovação.");
+      const a = await Q.getAssignment(req.db, o.assignment_id);
+      const s = await Q.getShift(req.db, a.shift_id);
+      await Q.ensureUnlocked(req.db, s.date);
+      const d = await Q.ensureDoctor(req.db, o.requested_doctor_id).catch(() => ({ name: "Médico" }));
+      await req.db.query(
+        "UPDATE escala.offers SET status='open',requested_doctor_id=NULL,requested_by=NULL,requested_at=NULL,decision_note=$1 WHERE id=$2",
+        [b.note, id],
+      );
+      await Q.audit(
+        req.db,
+        req.user,
+        "offer_rejected",
+        `${req.user.name} recusou o pedido de ${d.name} para assumir o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}. O plantão voltou a ficar disponível. Motivo: ${b.note}`,
+        { offer_id: id, shift_id: s.id, requested_doctor_id: o.requested_doctor_id, note: b.note },
+        [a.doctor_id, o.requested_doctor_id],
         s.date.slice(0, 7),
       );
     });
@@ -674,7 +749,7 @@ app.post(
     await transaction(req.db, async () => {
       const o = (
         await req.db.query(
-          "SELECT * FROM escala.offers WHERE id=$1 AND status='open' FOR UPDATE",
+          "SELECT * FROM escala.offers WHERE id=$1 AND status IN ('open','pending') FOR UPDATE",
           [id],
         )
       ).rows[0];
@@ -1015,6 +1090,14 @@ app.get(
   ),
 );
 app.get(
+  "/api/schedule/export",
+  route(async (req, res) => {
+    const m = monthOf(req);
+    const pdf = await schedulePdf(m, await Q.shiftsFor(req.db, m));
+    res.type("application/pdf").attachment(`escala-${m}.pdf`).send(pdf);
+  }),
+);
+app.get(
   "/api/reports/export",
   route(async (req, res) => {
     const m = monthOf(req);
@@ -1099,7 +1182,7 @@ app.post(
           );
         const open = (
           await req.db.query(
-            "SELECT count(*)::int count FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id JOIN escala.shifts s ON s.id=a.shift_id WHERE to_char(s.date,'YYYY-MM')=$1 AND o.status='open'",
+            "SELECT count(*)::int count FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id JOIN escala.shifts s ON s.id=a.shift_id WHERE to_char(s.date,'YYYY-MM')=$1 AND o.status IN ('open','pending')",
             [m],
           )
         ).rows[0].count;

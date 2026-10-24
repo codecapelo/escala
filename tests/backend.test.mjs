@@ -825,25 +825,28 @@ test("offer remains assigned to origin until accepted; acceptance records both p
     403,
   );
   assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'b')).status,200);
-  assert.equal(
-    (
-      await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [
-        s.assignments[0].id,
-      ])
-    ).doctor_id,
-    f.b.id,
-  );
-  const saved = await row("SELECT * FROM escala.offers WHERE id=$1", [
-    offer.id,
-  ]);
+  // The acceptance only requests the transfer; the origin keeps responsibility.
+  const owner = async () => (await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [s.assignments[0].id])).doctor_id;
+  assert.equal(await owner(), f.a.id);
+  assert.equal((await row("SELECT status FROM escala.offers WHERE id=$1", [offer.id])).status, "pending");
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, "a")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, "b")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 409);
+  assert.equal((await post(`/offers/${offer.id}/approve`, { note: "Conferido" }, "admin")).status, 200);
+  assert.equal(await owner(), f.b.id);
+  const saved = await row("SELECT * FROM escala.offers WHERE id=$1", [offer.id]);
   assert.equal(saved.status, "accepted");
   assert.equal(saved.from_doctor_id, f.a.id);
   assert.equal(saved.to_doctor_id, f.b.id);
   assert.equal(saved.accepted_by, f.b.user.id);
-  assert.ok(saved.accepted_at);
+  assert.equal(saved.approved_by, f.admin.user.id);
+  assert.ok(saved.accepted_at && saved.approved_at);
+  assert.equal((await row("SELECT count(*) n FROM escala.audit WHERE action='offer_requested'")).n, "1");
   const audit = await row(
-    "SELECT * FROM escala.audit WHERE action='offer_accepted'",
+    "SELECT * FROM escala.audit WHERE action='offer_approved'",
   );
+  assert.equal(audit.actor_id, f.admin.user.id);
+  assert.equal(audit.metadata.approved_by, f.admin.user.id);
   assert.equal(audit.metadata.from_doctor_id, f.a.id);
   assert.equal(audit.metadata.to_doctor_id, f.b.id);
   assert.deepEqual(audit.related_doctors.sort(), [f.a.id, f.b.id].sort());
@@ -868,6 +871,7 @@ test("two doctors racing for one offer have exactly one committed winner and one
   );
   assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
   const winner = results[0].status === 200 ? f.b : f.c;
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, "admin")).status, 200);
   assert.equal(
     (
       await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [
@@ -884,11 +888,31 @@ test("two doctors racing for one offer have exactly one committed winner and one
   assert.equal(
     (
       await row(
-        "SELECT count(*) n FROM escala.audit WHERE action='offer_accepted'",
+        "SELECT count(*) n FROM escala.audit WHERE action IN ('offer_requested','offer_approved')",
       )
     ).n,
-    "1",
+    "2",
   );
+});
+
+test("a rejected transfer request reopens the offer; the approver is recorded and cannot approve their own request", async () => {
+  const s = await createShift({ doctor_ids: [f.a.id] });
+  const offer = await createOffer(s);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/reject`, {}, "admin")).status, 400);
+  assert.equal((await post(`/offers/${offer.id}/reject`, { note: "Sem cobertura" }, "a")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/reject`, { note: "Sem cobertura" }, "admin")).status, 200);
+  const reopened = await row("SELECT * FROM escala.offers WHERE id=$1", [offer.id]);
+  assert.equal(reopened.status, "open");
+  assert.equal(reopened.requested_doctor_id, null);
+  assert.equal((await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [s.assignments[0].id])).doctor_id, f.a.id);
+  assert.ok((await row("SELECT 1 x FROM escala.audit WHERE action='offer_rejected' AND actor_id=$1", [f.admin.user.id])));
+  // An administrator-doctor cannot approve their own pending request, but the owner can.
+  await pool.query("UPDATE escala.users SET doctor_id=$1 WHERE id=$2", [f.free.id, f.admin.user.id]);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "admin")).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, "admin")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, "owner")).status, 200);
+  assert.equal((await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [s.assignments[0].id])).doctor_id, f.free.id);
 });
 
 test("duplicate offers conflict; administrators cannot offer or accept on behalf of another physician", async () => {
@@ -910,6 +934,7 @@ test("duplicate offers conflict; administrators cannot offer or accept on behalf
   for(const as of ['owner','admin'])assert.equal((await post('/offers',{assignment_id:s.assignments[0].id},as)).status,403);
   await pool.query('UPDATE escala.users SET doctor_id=$1 WHERE id=$2',[f.free.id,f.owner.user.id]);
   assert.equal((await post(`/offers/${offer.id}/accept`,{},'owner')).status,200);
+  assert.equal((await post(`/offers/${offer.id}/approve`,{},'admin')).status,200);
   assert.equal(
     (
       await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [
@@ -1170,11 +1195,12 @@ test("audit access exposes events related to a doctor and no unrelated administr
   const s = await createShift({ doctor_ids: [f.a.id] });
   const offer = await createOffer(s);
   await post(`/offers/${offer.id}/accept`, {}, "b");
+  await post(`/offers/${offer.id}/approve`, {}, "admin");
   const unrelated = await api(`/audit?month=${month}`, { as: "c" });
   assert.equal(unrelated.status, 200);
   assert.equal(unrelated.body.audit.length, 0);
   const related = await api(`/audit?month=${month}`, { as: "b" });
-  assert.ok(related.body.audit.some((a) => a.action === "offer_accepted"));
+  assert.ok(related.body.audit.some((a) => a.action === "offer_approved"));
   assert.ok(!related.body.audit.some((a) => a.action === "shift_created"));
   assert.ok(
     (await api(`/audit?month=${month}`)).body.audit.length >
@@ -1241,4 +1267,20 @@ test("ordinary HTTP login ignores spoofed Netlify and forwarding headers for IP 
     if (saved === undefined) delete process.env.NETLIFY;
     else process.env.NETLIFY = saved;
   }
+});
+
+test("schedule PDF export follows the original layout and is available to authenticated users only", async () => {
+  await createShift({ doctor_ids: [f.a.id, f.b.id] });
+  assert.equal((await api(`/schedule/export?month=${month}`, { as: null })).status, 401);
+  const res = await fetch(base + "/api/schedule/export?month=" + month, { headers: { Cookie: f.a.cookie } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /application\/pdf/);
+  assert.match(res.headers.get("content-disposition"), /escala-2099-11\.pdf/);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
+  const { sectionsFor } = await import("../server/pdf.mjs");
+  const sections = sectionsFor((await api(`/shifts?month=${month}`)).body.shifts);
+  assert.equal(sections[0].label, "MT");
+  assert.equal(sections[0].date, "2099-11-12");
+  assert.deepEqual(sections[0].left, ["M Doctor a", "M Doctor b"]);
 });

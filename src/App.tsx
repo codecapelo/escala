@@ -81,6 +81,8 @@ export default function App() {
     [offerAssignment, setOfferAssignment] = useState<string | null>(null),
     [acceptOffer, setAcceptOffer] = useState<Offer | null>(null),
     [cancelOffer, setCancelOffer] = useState<Offer | null>(null),
+    [approveOffer, setApproveOffer] = useState<Offer | null>(null),
+    [rejectOffer, setRejectOffer] = useState<Offer | null>(null),
     [day, setDay] = useState<string | null>(null),
     [profile, setProfile] = useState(false),
     [lock, setLock] = useState<boolean | null>(null),
@@ -418,6 +420,8 @@ export default function App() {
                     onMonth={changeMonth}
                     onAccept={setAcceptOffer}
                     onCancel={setCancelOffer}
+                    onApprove={setApproveOffer}
+                    onReject={setRejectOffer}
                     onSchedule={() => navigate("schedule")}
                   />
                 )}{" "}
@@ -566,7 +570,7 @@ export default function App() {
             onClose={() => setAcceptOffer(null)}
             onSaved={() => {
               refresh();
-              notify("Plantão assumido. A escala já foi atualizada.");
+              notify("Pedido enviado. Aguardando a autorização da administração.");
             }}
           />
         )}
@@ -580,6 +584,33 @@ export default function App() {
               await post(`/offers/${cancelOffer.id}/cancel`);
               refresh();
               notify("Repasse cancelado.");
+            }}
+          />
+        )}
+        {approveOffer && (
+          <Confirm
+            title="Autorizar este repasse?"
+            description={`${approveOffer.requested_name} assumirá o plantão de ${approveOffer.from_name} em ${dayLabel(approveOffer.date)} às ${approveOffer.start_time}. Seu nome ficará registrado como quem autorizou.`}
+            onClose={() => setApproveOffer(null)}
+            confirmLabel="Autorizar repasse"
+            onConfirm={async () => {
+              await post(`/offers/${approveOffer.id}/approve`);
+              refresh();
+              notify("Repasse autorizado e registrado no histórico.");
+            }}
+          />
+        )}
+        {rejectOffer && (
+          <Confirm
+            title="Recusar este pedido?"
+            description={`O plantão de ${rejectOffer.from_name} volta a ficar disponível. Informe o motivo para o histórico.`}
+            onClose={() => setRejectOffer(null)}
+            reason
+            confirmLabel="Recusar pedido"
+            onConfirm={async (reason) => {
+              await post(`/offers/${rejectOffer.id}/reject`, { note: reason });
+              refresh();
+              notify("Pedido recusado. O plantão voltou a ficar disponível.");
             }}
           />
         )}

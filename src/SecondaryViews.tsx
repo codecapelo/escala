@@ -52,6 +52,8 @@ export function OffersView({
   onMonth,
   onAccept,
   onCancel,
+  onApprove,
+  onReject,
   onSchedule,
 }: {
   offers: Offer[];
@@ -62,17 +64,21 @@ export function OffersView({
   onMonth: (m: string) => void;
   onAccept: (o: Offer) => void;
   onCancel: (o: Offer) => void;
+  onApprove: (o: Offer) => void;
+  onReject: (o: Offer) => void;
   onSchedule: () => void;
 }) {
-  const [tab, setTab] = useState<"open" | "mine" | "accepted" | "cancelled">(
-    "open",
-  );
+  const [tab, setTab] = useState<
+    "open" | "pending" | "mine" | "accepted" | "cancelled"
+  >("open");
+  const canApprove = user.role !== "doctor";
   const filtered = offers
     .filter((o) =>
       tab === "mine" ? o.from_doctor_id === user.doctor_id : tab === o.status,
     )
     .sort((a, b) => a.date.localeCompare(b.date));
   const open = offers.filter((o) => o.status === "open");
+  const pendingCount = offers.filter((o) => o.status === "pending").length;
   return (
     <>
       <div className="page-heading">
@@ -121,6 +127,12 @@ export function OffersView({
         >
           Disponíveis <span>{open.length}</span>
         </button>
+        <button
+          className={tab === "pending" ? "active" : ""}
+          onClick={() => setTab("pending")}
+        >
+          Em aprovação <span>{pendingCount}</span>
+        </button>
         {user.doctor_id && (
           <button
             className={tab === "mine" ? "active" : ""}
@@ -149,7 +161,9 @@ export function OffersView({
             title={
               tab === "open"
                 ? "A equipe está em sintonia"
-                : tab === "mine"
+                : tab === "pending"
+                  ? "Nenhum repasse aguardando aprovação"
+                  : tab === "mine"
                   ? "Você ainda não fez um repasse"
                   : "Nenhum repasse por aqui"
             }
@@ -172,21 +186,25 @@ export function OffersView({
           {filtered.map((o) => {
             const own = o.from_doctor_id === user.doctor_id;
             const canCancel =
-              o.status === "open" && !locked && own;
+              (o.status === "open" || o.status === "pending") &&
+              !locked &&
+              (own || canApprove);
             return (
               <article
-                className={`offer-card ${o.status !== "open" ? "offer-finished" : ""}`}
+                className={`offer-card ${o.status !== "open" && o.status !== "pending" ? "offer-finished" : ""}`}
                 key={o.id}
               >
                 <div className="offer-top">
                   <PeriodBadge period={o.period} />
                   <span
-                    className={`status-pill ${o.status === "open" ? "status-warm" : o.status === "accepted" ? "status-success" : "status-muted"}`}
+                    className={`status-pill ${o.status === "open" || o.status === "pending" ? "status-warm" : o.status === "accepted" ? "status-success" : "status-muted"}`}
                   >
                     <span />
                     {o.status === "open"
                       ? "Disponível"
-                      : o.status === "accepted"
+                      : o.status === "pending"
+                        ? "Em aprovação"
+                        : o.status === "accepted"
                         ? "Assumido"
                         : "Cancelado"}
                   </span>
@@ -225,8 +243,53 @@ export function OffersView({
                     <Check size={15} />
                     <span>
                       Assumido por <strong>{o.to_name}</strong>
+                      {o.approved_by_name && (
+                        <>
+                          {" "}
+                          · autorizado por <strong>{o.approved_by_name}</strong>
+                        </>
+                      )}
                     </span>
                   </div>
+                )}
+                {o.status === "pending" && (
+                  <>
+                    <div className="offer-accepted">
+                      <Clock3 size={15} />
+                      <span>
+                        <strong>{o.requested_name}</strong> pediu para assumir.
+                        Aguardando autorização da administração.
+                      </span>
+                    </div>
+                    <div className="offer-actions">
+                      {canApprove && (
+                        <>
+                          <button
+                            className="button button-primary"
+                            disabled={locked}
+                            onClick={() => onApprove(o)}
+                          >
+                            Autorizar repasse <Check size={16} />
+                          </button>
+                          <button
+                            className="button button-secondary button-sm"
+                            disabled={locked}
+                            onClick={() => onReject(o)}
+                          >
+                            Recusar
+                          </button>
+                        </>
+                      )}
+                      {canCancel && (
+                        <button
+                          className="button button-ghost button-sm"
+                          onClick={() => onCancel(o)}
+                        >
+                          Cancelar repasse
+                        </button>
+                      )}
+                    </div>
+                  </>
                 )}
                 {o.status === "open" && (
                   <div className="offer-actions">
@@ -267,7 +330,7 @@ export function OffersView({
       )}
       <p className="privacy-note">
         <ShieldCheck size={14} />O plantão permanece com o médico de origem até
-        a confirmação do aceite.
+        a autorização da administração.
       </p>
     </>
   );
@@ -298,7 +361,7 @@ export function ReportsView({
     setExporting(true);
     try {
       await exportReport(month);
-      notify("Relatório exportado.");
+      notify("Escala exportada em PDF.");
     } catch (e) {
       notify(message(e));
     } finally {
@@ -331,7 +394,7 @@ export function ReportsView({
           disabled={exporting || !data}
         >
           <Download size={17} />
-          {exporting ? "Exportando…" : "Exportar CSV"}
+          {exporting ? "Gerando PDF…" : "Exportar PDF"}
         </button>
       </div>
       <div className="report-topbar">

@@ -37,3 +37,14 @@ CREATE TABLE IF NOT EXISTS escala.corrections (
 CREATE INDEX IF NOT EXISTS registrations_status ON escala.registrations(status,created_at);
 CREATE INDEX IF NOT EXISTS corrections_user ON escala.corrections(user_id,status,created_at);
 CREATE INDEX IF NOT EXISTS corrections_status ON escala.corrections(status,created_at);
+-- Transfers: an acceptance waits for administrative approval ('pending').
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_doctor_id uuid REFERENCES escala.doctors(id);
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_by uuid REFERENCES escala.users(id);
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_at timestamptz;
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES escala.users(id);
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS approved_at timestamptz;
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS decision_note text;
+ALTER TABLE escala.offers DROP CONSTRAINT IF EXISTS offers_status_check;
+ALTER TABLE escala.offers ADD CONSTRAINT offers_status_check CHECK(status IN ('open','pending','accepted','cancelled'));
+DROP INDEX IF EXISTS escala.offers_one_open;
+CREATE UNIQUE INDEX IF NOT EXISTS offers_one_active ON escala.offers(assignment_id) WHERE status IN ('open','pending');

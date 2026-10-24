@@ -254,7 +254,7 @@ test('stale profile and schedule snapshots reject approval and retain pending re
 
 test('a transferred assignment or changed account link makes a correction stale',async()=>{
  const s=await shift();const c=await request('remove_assignment',{assignment_id:s.assignments[0].id});
- const o=await api('/offers',{as:'a',body:{assignment_id:s.assignments[0].id}});assert.equal((await api('/offers/'+o.body.offer.id+'/accept',{as:'b',body:{}})).status,200);
+ const o=await api('/offers',{as:'a',body:{assignment_id:s.assignments[0].id}});assert.equal((await api('/offers/'+o.body.offer.id+'/accept',{as:'b',body:{}})).status,200);assert.equal((await api('/offers/'+o.body.offer.id+'/approve',{as:'admin',body:{}})).status,200);
  assert.equal((await approve(c.id)).body.code,'STALE_CORRECTION');
  const p=await request('profile',{name:'New profile'});
  await db.query('UPDATE escala.users SET doctor_id=$1 WHERE id=$2',[f.free.id,f.a.user.id]);

@@ -257,7 +257,7 @@ reviewRouter.post(
       const openOffers = (
         await req.db.query(
           `SELECT o.id,s.date::text FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id
-   JOIN escala.shifts s ON s.id=a.shift_id WHERE o.status='open'
+   JOIN escala.shifts s ON s.id=a.shift_id WHERE o.status IN ('open','pending')
    AND (o.from_doctor_id=$1 OR o.to_doctor_id=$1 OR a.doctor_id=$1) FOR UPDATE OF o`,
           [sourceId],
         )
@@ -327,7 +327,7 @@ reviewRouter.post(
       }
       const cancelledOffers = (
         await req.db.query(
-          "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE id=ANY($1::uuid[]) AND status='open' RETURNING id",
+          "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE id=ANY($1::uuid[]) AND status IN ('open','pending') RETURNING id",
           [openOffers.map((o) => o.id)],
         )
       ).rows;
