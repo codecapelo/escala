@@ -95,6 +95,18 @@ export async function shiftsFor(db, month) {
   );
   return rows;
 }
+// Future, non-cancelled shifts of one doctor, used to block inactivation and to link to each shift.
+export async function upcomingFor(db, doctorId) {
+  return (
+    await db.query(
+      `SELECT a.id assignment_id,s.id shift_id,s.date::text,to_char(s.start_time,'HH24:MI') start_time,
+ to_char(s.end_time,'HH24:MI') end_time,s.period,s.unit FROM escala.assignments a JOIN escala.shifts s ON s.id=a.shift_id
+ WHERE a.doctor_id=$1 AND a.removed_at IS NULL AND s.cancelled_at IS NULL
+ AND (s.date+s.start_time) AT TIME ZONE 'America/Fortaleza'>now() ORDER BY s.date,s.start_time`,
+      [doctorId],
+    )
+  ).rows;
+}
 export async function doctorsFor(db) {
   return (
     await db.query(

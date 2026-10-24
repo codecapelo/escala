@@ -32,6 +32,7 @@ import { roleLabels, dayLabel, isApproved, crmLabel, brazilStates } from "./util
 import type { Doctor, User, Team, Role, Invite } from "./types";
 import ReviewView, { type ImportReview } from "./ReviewView";
 import {RegistrationQueue,SchedulePermission} from "./RegistrationViews";
+import InactivateDoctor, { type UpcomingShift } from "./InactivateDoctor";
 type LinkResult = { inviteUrl: string; expires_at: string };
 export default function TeamView({
   doctors,
@@ -40,6 +41,7 @@ export default function TeamView({
   onChanged,
   notify,
   onReauthenticate,
+  onOpenShift,
 }: {
   doctors: Doctor[];
   user: User;
@@ -47,6 +49,7 @@ export default function TeamView({
   onChanged: () => void;
   notify: (s: string) => void;
   onReauthenticate: () => void;
+  onOpenShift: (shift: UpcomingShift) => void;
 }) {
   const [tab, setTab] = useState<"doctors" | "access" | "review" | "registrations">("doctors"),
     [search, setSearch] = useState(""),
@@ -530,7 +533,21 @@ export default function TeamView({
         />
       )}
       {link && <InviteLink result={link} onClose={() => setLink(null)} />}{" "}
-      {confirm && (
+      {confirm?.type === "doctor" && confirm.doctor?.active && (
+        <InactivateDoctor
+          doctor={confirm.doctor}
+          onClose={() => setConfirm(null)}
+          onOpenShift={(shift) => {
+            setConfirm(null);
+            onOpenShift(shift);
+          }}
+          onDone={() => {
+            notify("Cadastro atualizado.");
+            onChanged();
+          }}
+        />
+      )}
+      {confirm && !(confirm.type === "doctor" && confirm.doctor?.active) && (
         <Confirm
           title={
             confirm.type === "doctor"

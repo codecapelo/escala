@@ -48,3 +48,12 @@ ALTER TABLE escala.offers DROP CONSTRAINT IF EXISTS offers_status_check;
 ALTER TABLE escala.offers ADD CONSTRAINT offers_status_check CHECK(status IN ('open','pending','accepted','cancelled'));
 DROP INDEX IF EXISTS escala.offers_one_open;
 CREATE UNIQUE INDEX IF NOT EXISTS offers_one_active ON escala.offers(assignment_id) WHERE status IN ('open','pending');
+-- Saved schedule models (a week pattern or a whole month snapshot).
+CREATE TABLE IF NOT EXISTS escala.schedule_templates (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ name text NOT NULL CHECK(length(btrim(name)) BETWEEN 2 AND 80),
+ kind text NOT NULL CHECK(kind IN ('week','month')),
+ source_ref text NOT NULL, slots jsonb NOT NULL,
+ created_by uuid REFERENCES escala.users(id), created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS schedule_templates_name ON escala.schedule_templates(lower(btrim(name)));

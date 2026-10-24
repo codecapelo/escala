@@ -15,6 +15,7 @@ import * as V from "./validation.mjs";
 import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
 import { schedulePdf } from "./pdf.mjs";
+import { createGenerateRouter } from "./generate.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 export const app = express();
 app.disable("x-powered-by");
@@ -846,17 +847,13 @@ app.patch(
       )
         fail(403, "Apenas o proprietário pode desativar um administrador.");
       if (b.active === false) {
-        const pending = (
-          await req.db.query(
-            `SELECT count(*)::int count FROM escala.assignments a JOIN escala.shifts s ON s.id=a.shift_id
-    WHERE a.doctor_id=$1 AND a.removed_at IS NULL AND s.cancelled_at IS NULL AND (s.date+s.start_time) AT TIME ZONE 'America/Fortaleza'>now()`,
-            [id],
-          )
-        ).rows[0].count;
-        if (pending)
+        const pending = await Q.upcomingFor(req.db, id);
+        if (pending.length)
           fail(
             409,
-            `Este médico tem ${pending} plantão(ões) futuro(s). Redistribua antes de desativar.`,
+            `Este médico tem ${pending.length} plantão(ões) futuro(s). Redistribua antes de desativar.`,
+            "HAS_FUTURE_SHIFTS",
+            pending,
           );
         await req.db.query(
           "DELETE FROM escala.sessions WHERE user_id IN (SELECT id FROM escala.users WHERE doctor_id=$1)",
@@ -881,6 +878,13 @@ app.patch(
       return result;
     });
     res.json({ doctor });
+  }),
+);
+app.get(
+  "/api/doctors/:id/upcoming",
+  route(async (req, res) => {
+    admin(req);
+    res.json({ shifts: await Q.upcomingFor(req.db, idOf(req)) });
   }),
 );
 app.get(
@@ -1217,6 +1221,7 @@ app.get(
 );
 app.use("/api", reviewRouter);
 app.use("/api", workflowRouter);
+app.use("/api", createGenerateRouter({ admin, scheduleManager }));
 app.use("/api", (req, res) =>
   res.status(404).json({ error: "Rota não encontrada." }),
 );
@@ -1259,5 +1264,6 @@ app.use((err, req, res, next) => {
           ? "Não foi possível conectar ao serviço. Tente novamente em instantes."
           : err.message,
       code: err.status ? err.code : undefined,
+      details: err.status ? err.details : undefined,
     });
 });

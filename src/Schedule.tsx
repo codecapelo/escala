@@ -19,6 +19,7 @@ import {
   CalendarRange,
   Loader2,
   ArrowDownUp,
+  CalendarPlus,
 } from "lucide-react";
 import { Avatar, Empty, ErrorBox, PeriodBadge, PeriodIcon } from "./ui";
 import {
@@ -30,6 +31,7 @@ import {
 } from "./CalendarViews";
 import type { ScheduleView } from "./CalendarViews";
 import { previewProps, ShiftPreviewHost } from "./ShiftPreview";
+import GenerateSchedule from "./GenerateSchedule";
 import "./calendar.css";
 import {
   dateLocal,
@@ -86,6 +88,7 @@ export default function Schedule({
   onShift,
   onDay,
   onOffers,
+  onGenerated,
 }: {
   data: Dashboard;
   user: User;
@@ -95,6 +98,7 @@ export default function Schedule({
   onShift: (s: Shift) => void;
   onDay: (date: string) => void;
   onOffers: () => void;
+  onGenerated: (month: string, summary: string) => void;
 }) {
   const [view, setView] = useState<ScheduleView>(() =>
     window.innerWidth < 700 ? "list" : "calendar",
@@ -102,7 +106,8 @@ export default function Schedule({
   const [focusDate, setFocusDate] = useState(() =>
     month === todayISO().slice(0, 7) ? todayISO() : `${month}-01`,
   );
-  const [order, setOrder] = useState<ShiftOrder>("time"),
+  const [generating, setGenerating] = useState(false),
+    [order, setOrder] = useState<ShiftOrder>("time"),
     [doctor, setDoctor] = useState(""),
     [period, setPeriod] = useState(""),
     [reviewOnly, setReviewOnly] = useState(false);
@@ -188,14 +193,23 @@ export default function Schedule({
           </p>
         </div>
         {canCreate && (
-          <button
-            className="button button-primary"
-            onClick={() => onNew(agenda ? focusDate : undefined)}
-            disabled={agenda ? !canCreateDate(focusDate) : data.locked}
-          >
-            <Plus size={18} />
-            Novo plantão
-          </button>
+          <div className="button-row">
+            <button
+              className="button button-secondary"
+              onClick={() => setGenerating(true)}
+            >
+              <CalendarPlus size={18} />
+              Gerar escala
+            </button>
+            <button
+              className="button button-primary"
+              onClick={() => onNew(agenda ? focusDate : undefined)}
+              disabled={agenda ? !canCreateDate(focusDate) : data.locked}
+            >
+              <Plus size={18} />
+              Novo plantão
+            </button>
+          </div>
         )}
       </div>
       <div className="stats-grid">
@@ -572,6 +586,19 @@ export default function Schedule({
         </div>
       </section>
       <ShiftPreviewHost ownDoctorId={user.doctor_id} />
+      {generating && (
+        <GenerateSchedule
+          month={month}
+          user={user}
+          onClose={() => setGenerating(false)}
+          onDone={(target, r) =>
+            onGenerated(
+              target,
+              `Escala gerada: ${r.shifts} plantões e ${r.assignments} alocações${r.skipped ? `; ${r.skipped} ficaram de fora (veja o histórico)` : ""}.`,
+            )
+          }
+        />
+      )}
       <div className="page-footnote">
         <span>Escalas bem organizadas. Pessoas bem cuidadas.</span>
         <span>

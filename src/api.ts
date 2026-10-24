@@ -1,11 +1,18 @@
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(message: string, status: number, code?: string) {
+  details?: unknown;
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 export async function api<T>(
@@ -29,6 +36,7 @@ export async function api<T>(
           : "Não foi possível concluir. Tente novamente."),
       response.status,
       data?.code,
+      data?.details,
     );
   if (!data)
     throw new ApiError(

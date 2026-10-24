@@ -1284,3 +1284,75 @@ test("schedule PDF export follows the original layout and is available to authen
   assert.equal(sections[0].date, "2099-11-12");
   assert.deepEqual(sections[0].left, ["M Doctor a", "M Doctor b"]);
 });
+
+test("inactivating a doctor lists future shifts with ids so the UI can link to each one", async () => {
+  const s = await createShift({ doctor_ids: [f.a.id] });
+  const list = await api(`/doctors/${f.a.id}/upcoming`);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.shifts.length, 1);
+  assert.equal(list.body.shifts[0].shift_id, s.id);
+  assert.equal(list.body.shifts[0].date, "2099-11-12");
+  assert.equal((await api(`/doctors/${f.a.id}/upcoming`, { as: "b" })).status, 403);
+  const blocked = await api(`/doctors/${f.a.id}`, { method: "PATCH", body: { active: false } });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body.code, "HAS_FUTURE_SHIFTS");
+  assert.equal(blocked.body.details[0].shift_id, s.id);
+});
+
+test("schedule generation copies a month by weekday, previews without writing, and reports skipped doctors", async () => {
+  const weekday = (d) => new Date(`${d}T12:00:00Z`).getUTCDay();
+  await createShift({ date: "2099-11-03", doctor_ids: [f.a.id, f.b.id] });
+  await createShift({ date: "2099-11-12", doctor_ids: [f.c.id], start_time: "19:00", end_time: "01:00", period: "night" });
+  await pool.query("UPDATE escala.doctors SET active=false WHERE id=$1", [f.b.id]);
+  const body = { target_month: "2099-12", source: { type: "month", month: "2099-11" } };
+  const preview = await post("/schedule/generate", { ...body, dry_run: true });
+  assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  assert.equal(preview.body.dry_run, true);
+  assert.equal(await count("shifts"), 2, "dry run must not write");
+  assert.equal(preview.body.skipped_details[0].doctor, "Doctor b");
+  assert.equal((await post("/schedule/generate", body, "a")).status, 403);
+  const made = await post("/schedule/generate", body);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const dec = (await api(`/shifts?month=2099-12`)).body.shifts;
+  // Each weekday occurrence maps to the same-numbered occurrence of that weekday in the source.
+  assert.equal(dec.length, 2);
+  for (const s of dec) assert.ok(["Doctor a", "Doctor c"].includes(s.assignments[0].doctor_name));
+  assert.deepEqual(dec.map((s) => weekday(s.date)).sort(), [weekday("2099-11-03"), weekday("2099-11-12")].sort());
+  assert.ok(dec.some((s) => s.start_time === "19:00" && s.end_time === "01:00"));
+  const audit = await row("SELECT * FROM escala.audit WHERE action='schedule_generated'");
+  assert.equal(audit.actor_id, f.owner.user.id);
+  const again = await post("/schedule/generate", body);
+  assert.equal(again.status, 409);
+  assert.equal(again.body.code, "MONTH_NOT_EMPTY");
+  const add = await post("/schedule/generate", { ...body, allow_existing: true });
+  assert.equal(add.status, 201);
+  assert.equal(add.body.assignments, 0, "re-running adds nothing already scheduled");
+  assert.equal((await api(`/shifts?month=2099-12`)).body.shifts.length, dec.length);
+  await post("/months/2099-12/lock", { locked: true }, "admin");
+  assert.equal((await post("/schedule/generate", { ...body, allow_existing: true })).body.code, "MONTH_LOCKED");
+});
+
+test("a saved week model repeats through the whole month and can be listed and deleted", async () => {
+  const weekday = (d) => new Date(`${d}T12:00:00Z`).getUTCDay();
+  await createShift({ date: "2099-11-03", doctor_ids: [f.a.id] });
+  await createShift({ date: "2099-11-05", doctor_ids: [f.c.id], start_time: "13:00", end_time: "19:00", period: "afternoon" });
+  const saved = await post("/templates", { name: "Semana padrao", kind: "week", date: "2099-11-04" });
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  assert.equal(saved.body.template.shifts, 2);
+  assert.equal((await post("/templates", { name: "semana PADRAO", kind: "week", date: "2099-11-04" })).status, 409);
+  assert.equal((await post("/templates", { name: "Vazio", kind: "week", date: "2099-10-04" })).body.code, "EMPTY_SOURCE");
+  assert.equal((await api("/templates", { as: "a" })).body.templates.length, 1);
+  const t = saved.body.template;
+  const made = await post("/schedule/generate", { target_month: "2099-12", source: { type: "template", template_id: t.id } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const dec = (await api("/shifts?month=2099-12")).body.shifts;
+  const days = new Set(dec.map((s) => weekday(s.date)));
+  assert.deepEqual([...days].sort(), [weekday("2099-11-03"), weekday("2099-11-05")].sort());
+  assert.ok(dec.length >= 8);
+  const week = await post("/schedule/generate", { target_month: "2099-10", source: { type: "week", date: "2099-11-04" }, dry_run: true });
+  assert.equal(week.status, 200);
+  assert.ok(week.body.shifts >= 8);
+  assert.equal((await api(`/templates/${t.id}`, { method: "DELETE", as: "a", body: {} })).status, 403);
+  assert.equal((await api(`/templates/${t.id}`, { method: "DELETE", body: {} })).status, 200);
+  assert.equal((await api("/templates")).body.templates.length, 0);
+});

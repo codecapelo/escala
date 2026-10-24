@@ -49,10 +49,11 @@ export function cookieOptions() {
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
 }
-export function fail(status, message, code) {
+export function fail(status, message, code, details) {
   const e = new Error(message);
   e.status = status;
   e.code = code;
+  if (details !== undefined) e.details = details;
   throw e;
 }
 export function shiftStart(shift) {

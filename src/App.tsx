@@ -408,6 +408,11 @@ export default function App() {
                     onShift={selectShift}
                     onDay={setDay}
                     onOffers={() => navigate("offers")}
+                    onGenerated={(target, summary) => {
+                      refresh();
+                      if (target !== month) changeMonth(target);
+                      notify(summary);
+                    }}
                   />
                 )}{" "}
                 {page === "offers" && (
@@ -432,6 +437,15 @@ export default function App() {
                     version={version}
                     onChanged={refresh}
                     notify={notify}
+                    onOpenShift={(s) => {
+                      setPage("schedule");
+                      if (s.date.slice(0, 7) !== month) {
+                        setData(null);
+                        setMonth(s.date.slice(0, 7));
+                      }
+                      setSelectedId(s.shift_id);
+                      window.scrollTo({ top: 0 });
+                    }}
                     onReauthenticate={() => {
                       setAuth(null);
                       setData(null);
