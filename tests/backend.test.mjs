@@ -114,6 +114,7 @@ before(async () => {
       "utf8",
     ),
   );
+  await pool.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
   passwordHash = await hashPassword(password);
   const { app } = await import("../server/app.mjs");
   server = app.listen(0, "127.0.0.1");
@@ -821,8 +822,9 @@ test("offer remains assigned to origin until accepted; acceptance records both p
   assert.equal(
     (await post(`/offers/${offer.id}/accept`, { doctor_id: f.c.id }, "b"))
       .status,
-    200,
+    403,
   );
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'b')).status,200);
   assert.equal(
     (
       await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [
@@ -889,7 +891,7 @@ test("two doctors racing for one offer have exactly one committed winner and one
   );
 });
 
-test("duplicate offers return conflict and an administrator can accept for an explicitly chosen doctor", async () => {
+test("duplicate offers conflict; administrators cannot offer or accept on behalf of another physician", async () => {
   const s = await createShift({ doctor_ids: [f.a.id] });
   const offer = await createOffer(s);
   assert.equal(
@@ -903,15 +905,18 @@ test("duplicate offers return conflict and an administrator can accept for an ex
   assert.equal(
     (await post(`/offers/${offer.id}/accept`, { doctor_id: f.c.id }, "admin"))
       .status,
-    200,
+    403,
   );
+  for(const as of ['owner','admin'])assert.equal((await post('/offers',{assignment_id:s.assignments[0].id},as)).status,403);
+  await pool.query('UPDATE escala.users SET doctor_id=$1 WHERE id=$2',[f.free.id,f.owner.user.id]);
+  assert.equal((await post(`/offers/${offer.id}/accept`,{},'owner')).status,200);
   assert.equal(
     (
       await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [
         s.assignments[0].id,
       ])
     ).doctor_id,
-    f.c.id,
+    f.free.id,
   );
 });
 
@@ -932,6 +937,7 @@ test("offer acceptance rejects overlapping target intervals, self acceptance and
   assert.equal(r.status, 409);
   assert.equal(r.body.code, "OVERLAP");
   assert.equal((await post(`/offers/${offer.id}/accept`, {}, "a")).status, 400);
+  await pool.query('UPDATE escala.users SET doctor_id=$1 WHERE id=$2',[f.inactive.id,f.owner.user.id]);
   assert.equal(
     (await post(`/offers/${offer.id}/accept`, { doctor_id: f.inactive.id }))
       .status,

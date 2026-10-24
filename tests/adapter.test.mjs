@@ -40,6 +40,7 @@ before(async () => {
       "utf8",
     ),
   );
+  await pool.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
   hash = await hashPassword(password);
   ({ handler } = await import("../netlify/functions/api.mjs"));
 });

@@ -40,6 +40,7 @@ import {
   monthLabel,
   roleLabels,
   isUpcoming,
+  crmLabel,
 } from "./utils";
 import type { Offer, Doctor, User, Report, Audit, ReportRow } from "./types";
 export function OffersView({
@@ -171,7 +172,7 @@ export function OffersView({
           {filtered.map((o) => {
             const own = o.from_doctor_id === user.doctor_id;
             const canCancel =
-              o.status === "open" && !locked && (own || user.role !== "doctor");
+              o.status === "open" && !locked && own;
             return (
               <article
                 className={`offer-card ${o.status !== "open" ? "offer-finished" : ""}`}
@@ -229,7 +230,7 @@ export function OffersView({
                 )}
                 {o.status === "open" && (
                   <div className="offer-actions">
-                    {(!own || user.role !== "doctor") && (
+                    {!!user.doctor_id && !own && (
                       <button
                         className="button button-primary"
                         disabled={locked || !isUpcoming(o.date, o.start_time)}
@@ -243,7 +244,7 @@ export function OffersView({
                         <ArrowUpRight size={16} />
                       </button>
                     )}
-                    {own && user.role === "doctor" && (
+                    {own && (
                       <span className="own-offer-label">
                         <Info size={15} />
                         Você está oferecendo este plantão
@@ -748,11 +749,15 @@ export function AuditView({
 }
 export function ProfileModal({
   user,
+  doctor,
+  onCorrections,
   onClose,
   onLogout,
   notify,
 }: {
   user: User;
+  doctor:Doctor|null;
+  onCorrections:()=>void;
   onClose: () => void;
   onLogout: () => void;
   notify: (s: string) => void;
@@ -792,11 +797,13 @@ export function ProfileModal({
         <div className="profile-card">
           <Avatar name={user.name} />
           <div>
-            <h3>{user.name}</h3>
+            <h3>{doctor?.name||user.name}</h3>
             <p>{user.email}</p>
-            <span className="role-badge">{roleLabels[user.role]}</span>
+            {doctor&&<p className="workflow-profile-crm">{crmLabel(doctor)}</p>}
+            <span className="role-badge">{roleLabels[user.role]}</span>{doctor&&user.role!=="doctor"&&<span className="role-badge workflow-doctor-role">Médico</span>}
           </div>
         </div>
+        {doctor&&<button className="profile-option" onClick={onCorrections}><FileCheck2 size={19}/><span>Conferir meus dados e plantões<small>Solicitar ajustes para a coordenação</small></span><ChevronRight size={17}/></button>}
         <button
           className="profile-option"
           onClick={() => setShowPassword(!showPassword)}

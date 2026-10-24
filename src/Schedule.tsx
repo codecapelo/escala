@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -16,8 +16,19 @@ import {
   CircleCheck,
   X,
   AlertCircle,
+  CalendarRange,
+  Loader2,
 } from "lucide-react";
-import { Avatar, Empty, PeriodBadge, PeriodIcon } from "./ui";
+import { Avatar, Empty, ErrorBox, PeriodBadge, PeriodIcon } from "./ui";
+import {
+  DateRangeControl,
+  DayView,
+  WeekView,
+  useCalendarMonths,
+  weekDates,
+} from "./CalendarViews";
+import type { ScheduleView } from "./CalendarViews";
+import "./calendar.css";
 import {
   dateLocal,
   dayLabel,
@@ -29,6 +40,8 @@ import {
   shortName,
   todayISO,
   toISO,
+  canEditSchedule,
+  isUpcoming,
 } from "./utils";
 import type { Dashboard, Period, Shift, User } from "./types";
 export function MonthControl({
@@ -78,43 +91,86 @@ export default function Schedule({
   onDay: (date: string) => void;
   onOffers: () => void;
 }) {
-  const [view, setView] = useState<"calendar" | "list">(() =>
-      window.innerWidth < 700 ? "list" : "calendar",
-    ),
-    [doctor, setDoctor] = useState(""),
+  const [view, setView] = useState<ScheduleView>(() =>
+    window.innerWidth < 700 ? "list" : "calendar",
+  );
+  const [focusDate, setFocusDate] = useState(() =>
+    month === todayISO().slice(0, 7) ? todayISO() : `${month}-01`,
+  );
+  const [doctor, setDoctor] = useState(""),
     [period, setPeriod] = useState(""),
     [reviewOnly, setReviewOnly] = useState(false);
+  useEffect(() => {
+    setFocusDate((current) =>
+      current.slice(0, 7) === month
+        ? current
+        : month === todayISO().slice(0, 7)
+          ? todayISO()
+          : `${month}-01`,
+    );
+  }, [month]);
+  const agenda = view === "week" || view === "day";
+  const dates =
+    view === "week"
+      ? weekDates(focusDate)
+      : view === "day"
+        ? [focusDate]
+        : [`${month}-01`];
+  const calendar = useCalendarMonths(month, data.shifts, data.locked, dates);
+  const sourceShifts = agenda
+    ? calendar.shifts.filter(
+        (shift) => shift.date >= dates[0] && shift.date <= dates.at(-1)!,
+      )
+    : data.shifts;
   const shifts = useMemo(
     () =>
-      data.shifts
+      sourceShifts
         .filter(
-          (s) =>
-            (!doctor || s.assignments.some((a) => a.doctor_id === doctor)) &&
-            (!period || s.period === period) &&
-            (!reviewOnly || s.needs_review),
+          (shift) =>
+            (!doctor ||
+              shift.assignments.some(
+                (assignment) => assignment.doctor_id === doctor,
+              )) &&
+            (!period || shift.period === period) &&
+            (!reviewOnly || shift.needs_review),
         )
-        .sort((a, b) =>
-          `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`),
+        .sort((left, right) =>
+          `${left.date}${left.start_time}`.localeCompare(
+            `${right.date}${right.start_time}`,
+          ),
         ),
-    [data.shifts, doctor, period, reviewOnly],
+    [sourceShifts, doctor, period, reviewOnly],
   );
   const ownShifts = user.doctor_id
-    ? data.shifts.filter((s) =>
-        s.assignments.some((a) => a.doctor_id === user.doctor_id),
+    ? data.shifts.filter((shift) =>
+        shift.assignments.some(
+          (assignment) => assignment.doctor_id === user.doctor_id,
+        ),
       )
     : data.shifts;
   const ownHours = ownShifts.reduce(
-    (sum, s) => sum + hours(s.start_time, s.end_time),
+    (total, shift) => total + hours(shift.start_time, shift.end_time),
     0,
   );
+  const ownDays = new Set(ownShifts.map((shift) => shift.date)).size;
   const next = ownShifts
-    .filter((s) => s.date >= todayISO())
-    .sort((a, b) =>
-      `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`),
+    .filter((shift) => isUpcoming(shift.date, shift.start_time))
+    .sort((left, right) =>
+      `${left.date}${left.start_time}`.localeCompare(
+        `${right.date}${right.start_time}`,
+      ),
     )[0];
-  const activeOffers = data.offers.filter((o) => o.status === "open").length;
-  const admin = user.role !== "doctor";
-  const pending = data.shifts.filter((s) => s.needs_review).length;
+  const activeOffers = data.offers.filter(
+    (offer) => offer.status === "open",
+  ).length;
+  const admin = user.role !== "doctor",
+    canCreate = canEditSchedule(user);
+  const canCreateDate = (date: string) =>
+    canCreate &&
+    calendar.ready.has(date.slice(0, 7)) &&
+    calendar.locks[date.slice(0, 7)] === false;
+  const pending = sourceShifts.filter((shift) => shift.needs_review).length;
+  const filtered = !!(doctor || period || reviewOnly);
   return (
     <>
       <div className="page-heading">
@@ -129,11 +185,11 @@ export default function Schedule({
               : "Uma visão clara dos plantões para um cuidado que não para."}
           </p>
         </div>
-        {admin && (
+        {canCreate && (
           <button
             className="button button-primary"
-            onClick={() => onNew()}
-            disabled={data.locked}
+            onClick={() => onNew(agenda ? focusDate : undefined)}
+            disabled={agenda ? !canCreateDate(focusDate) : data.locked}
           >
             <Plus size={18} />
             Novo plantão
@@ -148,14 +204,16 @@ export default function Schedule({
           note={
             user.role === "doctor"
               ? "Escala do período"
-              : "Alocações no período"
+              : `Escala de ${monthLabel(month)}`
           }
         />
         <Stat
           icon={<Clock3 size={20} />}
           value={`${formatNumber(user.role === "doctor" ? ownHours : data.stats.hours)}h`}
           label={user.role === "doctor" ? "Minhas horas" : "Horas de cobertura"}
-          note="Distribuídas na escala"
+          note={
+            admin ? `Escala de ${monthLabel(month)}` : "Distribuídas na escala"
+          }
         />
         <Stat
           icon={<Users size={20} />}
@@ -172,6 +230,63 @@ export default function Schedule({
           warm
         />
       </div>
+      {admin && user.doctor_id && (
+        <section
+          className="personal-schedule-card"
+          aria-label="Meu resumo mensal"
+        >
+          <div className="personal-schedule-identity">
+            <Avatar name={user.name} />
+            <div>
+              <span className="eyebrow">VOCÊ TAMBÉM NA ESCALA</span>
+              <h2>Seus plantões em {monthLabel(month)}</h2>
+              <p>
+                {next ? (
+                  <>
+                    Próximo: {dayLabel(next.date)} · {next.start_time} às{" "}
+                    {next.end_time}
+                  </>
+                ) : (
+                  "Nenhum próximo plantão neste mês."
+                )}
+              </p>
+            </div>
+          </div>
+          <dl>
+            <div>
+              <dt>Plantões</dt>
+              <dd>{ownShifts.length}</dd>
+            </div>
+            <div>
+              <dt>Horas</dt>
+              <dd>{formatNumber(ownHours)}h</dd>
+            </div>
+            <div>
+              <dt>Dias</dt>
+              <dd>{ownDays}</dd>
+            </div>
+          </dl>
+          <button
+            className={`button ${doctor === user.doctor_id ? "button-primary" : "button-secondary"}`}
+            aria-pressed={doctor === user.doctor_id}
+            onClick={() =>
+              setDoctor(doctor === user.doctor_id ? "" : user.doctor_id!)
+            }
+          >
+            <CalendarDays size={16} />
+            Meus plantões
+          </button>
+          {next && (
+            <button
+              className="text-button personal-next-button"
+              onClick={() => onShift(next)}
+            >
+              Ver próximo
+              <ArrowRight size={14} />
+            </button>
+          )}
+        </section>
+      )}
       <div className="schedule-banner">
         <div className="banner-icon">
           {data.locked ? <LockKeyhole size={20} /> : <CircleCheck size={20} />}
@@ -208,7 +323,7 @@ export default function Schedule({
           {data.locked ? "Mês fechado" : "Escala aberta"}
         </span>
       </div>
-      {admin && pending > 0 && (
+      {canCreate && pending > 0 && (
         <div className="review-callout">
           <AlertCircle size={16} />
           <p>
@@ -224,17 +339,28 @@ export default function Schedule({
           </button>
         </div>
       )}
-      <section className="schedule-card">
+      <section className={`schedule-card schedule-card--${view}`}>
         <div className="schedule-toolbar">
           <div className="calendar-title">
             <CalendarDays size={20} />
             <h2>Escala de plantões</h2>
           </div>
           <div className="schedule-controls">
-            <MonthControl month={month} onMonth={onMonth} />
+            {agenda ? (
+              <DateRangeControl
+                view={view}
+                date={focusDate}
+                onDate={setFocusDate}
+              />
+            ) : (
+              <MonthControl month={month} onMonth={onMonth} />
+            )}
             <button
               className="button button-secondary button-sm today-button"
-              onClick={() => onMonth(todayISO().slice(0, 7))}
+              onClick={() => {
+                setFocusDate(todayISO());
+                if (!agenda) onMonth(todayISO().slice(0, 7));
+              }}
             >
               Hoje
             </button>
@@ -246,7 +372,25 @@ export default function Schedule({
                 onClick={() => setView("calendar")}
               >
                 <Calendar size={16} />
-                <span>Calendário</span>
+                <span>Mês</span>
+              </button>
+              <button
+                className={view === "week" ? "selected" : ""}
+                aria-label="Visualização em semana"
+                aria-pressed={view === "week"}
+                onClick={() => setView("week")}
+              >
+                <CalendarRange size={16} />
+                <span>Semana</span>
+              </button>
+              <button
+                className={view === "day" ? "selected" : ""}
+                aria-label="Visualização em dia"
+                aria-pressed={view === "day"}
+                onClick={() => setView("day")}
+              >
+                <CalendarDays size={16} />
+                <span>Dia</span>
               </button>
               <button
                 className={view === "list" ? "selected" : ""}
@@ -280,6 +424,17 @@ export default function Schedule({
               ))}
             </select>
           </div>
+          {!admin && user.doctor_id && (
+            <button
+              className={`agenda-own-filter ${doctor === user.doctor_id ? "active" : ""}`}
+              aria-pressed={doctor === user.doctor_id}
+              onClick={() =>
+                setDoctor(doctor === user.doctor_id ? "" : user.doctor_id!)
+              }
+            >
+              Meus plantões
+            </button>
+          )}
           <span className="filter-divider" />
           <div className="period-filters">
             <button
@@ -315,7 +470,40 @@ export default function Schedule({
           )}
           <span className="filter-count">{shifts.length} plantões</span>
         </div>
-        {!shifts.length ? (
+        {agenda && calendar.loading && (
+          <div className="agenda-fetch-status" role="status">
+            <Loader2 size={16} className="spin" />
+            Carregando plantões do período…
+          </div>
+        )}
+        {agenda && calendar.error && (
+          <div className="agenda-fetch-error">
+            <ErrorBox retry={calendar.reload}>{calendar.error}</ErrorBox>
+          </div>
+        )}
+        {view === "week" ? (
+          <WeekView
+            dates={dates}
+            shifts={shifts}
+            onShift={onShift}
+            onNew={onNew}
+            canCreate={canCreateDate}
+            isReady={(date) => calendar.ready.has(date.slice(0, 7))}
+            loading={calendar.loading}
+            filtered={filtered}
+          />
+        ) : view === "day" ? (
+          <DayView
+            date={focusDate}
+            shifts={shifts}
+            onShift={onShift}
+            onNew={onNew}
+            canCreate={canCreateDate}
+            isReady={(date) => calendar.ready.has(date.slice(0, 7))}
+            loading={calendar.loading}
+            filtered={filtered}
+          />
+        ) : !shifts.length ? (
           <Empty
             title={
               doctor || period || reviewOnly
@@ -325,12 +513,12 @@ export default function Schedule({
             description={
               doctor || period || reviewOnly
                 ? "Experimente outro médico ou turno para encontrar os plantões."
-                : admin
+                : canCreate
                   ? "Comece a organizar a escala adicionando o primeiro plantão."
                   : "Ainda não há plantões cadastrados para este mês."
             }
             action={
-              admin && !data.locked && !doctor && !period && !reviewOnly ? (
+              canCreate && !data.locked && !doctor && !period && !reviewOnly ? (
                 <button
                   className="button button-primary"
                   onClick={() => onNew()}
@@ -346,7 +534,7 @@ export default function Schedule({
             month={month}
             shifts={shifts}
             onShift={onShift}
-            onNew={admin && !data.locked ? onNew : undefined}
+            onNew={canCreate && !data.locked ? onNew : undefined}
             onDay={onDay}
           />
         ) : (
@@ -363,7 +551,7 @@ export default function Schedule({
           </div>
           <span>
             <SlidersHorizontal size={13} />
-            Horário de Brasília (UTC−3)
+            America/Fortaleza (UTC−3)
           </span>
         </div>
       </section>

@@ -1,4 +1,4 @@
-import type { Period } from "./types";
+import type { Period, User, Doctor } from "./types";
 export const periods: Record<
   Period,
   { label: string; short: string; time: string; className: string }
@@ -94,3 +94,8 @@ export function isUpcoming(date: string, time: string) {
     Date.now()
   );
 }
+
+export function isApproved(user:User){return !user.approval_status||user.approval_status==='approved';}
+export function canEditSchedule(user:User){return isApproved(user)&&(user.role==='owner'||user.role==='admin'||!!user.can_manage_schedule);}
+export function crmLabel(doctor:Pick<Doctor,'crm'|'crm_uf'>){return doctor.crm?`CRM ${doctor.crm}${doctor.crm_uf?`/${doctor.crm_uf}`:''}`:'CRM não informado';}
+export const brazilStates=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];

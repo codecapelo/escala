@@ -14,6 +14,7 @@ import {
 import * as V from "./validation.mjs";
 import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
+import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 export const app = express();
 app.disable("x-powered-by");
 // serverless-http supplies a completed IncomingMessage with a raw Buffer.
@@ -97,6 +98,10 @@ const admin = (req) => {
   if (!["owner", "admin"].includes(req.user.role))
     fail(403, "Esta ação é exclusiva da administração.");
 };
+const scheduleManager = (req) => {
+  if (!["owner", "admin"].includes(req.user.role) && !(req.user.role === "doctor" && req.user.approval_status === "approved" && req.user.can_manage_schedule))
+    fail(403, "Você não tem permissão para editar a escala.");
+};
 const owner = (req) => {
   if (req.user.role !== "owner")
     fail(403, "Apenas o proprietário pode gerenciar administradores.");
@@ -134,8 +139,11 @@ async function session(req, res, user) {
         ])
       ).rows[0]
     : null;
-  return { user: safe, doctor };
+  const registration = await registrationFor(req.db, user.id);
+  return { user: safe, doctor, ...(registration ? { registration } : {}) };
 }
+const {publicRouter,workflowRouter}=createWorkflowRouters({session,rateLimit,clientAddress,admin,monthOf});
+app.use('/api',publicRouter);
 app.get(
   "/api/health",
   route(async (req, res) => {
@@ -156,7 +164,7 @@ app.post(
     ).rows[0];
     const valid = await verifyPassword(body.password, user?.password_hash);
     if (!user?.active || !valid) fail(401, "E-mail ou senha incorretos.");
-    if (user.role === "doctor") await Q.ensureDoctor(req.db, user.doctor_id);
+    if (user.role === "doctor" && user.approval_status === 'approved') await Q.ensureDoctor(req.db, user.doctor_id);
     await req.db.query("DELETE FROM escala.rate_limits WHERE key=$1", [
       digest("login:" + body.email),
     ]);
@@ -234,13 +242,15 @@ app.use("/api", async (req, res, next) => {
     if (!token) fail(401, "Entre na sua conta para continuar.");
     const user = (
       await req.db.query(
-        `SELECT u.id,u.name,u.email,u.role,u.doctor_id,u.active FROM escala.sessions s JOIN escala.users u ON u.id=s.user_id
-   LEFT JOIN escala.doctors d ON d.id=u.doctor_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active AND (u.role<>'doctor' OR d.active)`,
+        `SELECT u.id,u.name,u.email,u.role,u.doctor_id,u.active,u.approval_status,u.can_manage_schedule FROM escala.sessions s JOIN escala.users u ON u.id=s.user_id
+   LEFT JOIN escala.doctors d ON d.id=u.doctor_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active AND (u.approval_status<>'approved' OR u.role<>'doctor' OR d.active)`,
         [digest(token)],
       )
     ).rows[0];
     if (!user) fail(401, "Sua sessão expirou. Entre novamente.");
     req.user = user;
+    if(user.approval_status!=='approved'&&!(['GET /auth/me','POST /auth/logout','POST /auth/password','GET /registrations/me'].includes(req.method+' '+req.path)))
+      fail(403,user.approval_status==='rejected'?'Seu cadastro não foi aprovado. Consulte a decisão da administração.':'Seu cadastro aguarda aprovação da administração.',user.approval_status==='rejected'?'REGISTRATION_REJECTED':'PENDING_APPROVAL');
     next();
   } catch (e) {
     next(e);
@@ -251,6 +261,7 @@ app.get(
   route(async (req, res) =>
     res.json({
       user: req.user,
+      registration: await registrationFor(req.db,req.user.id),
       doctor: req.user.doctor_id
         ? (
             await req.db.query("SELECT * FROM escala.doctors WHERE id=$1", [
@@ -362,7 +373,7 @@ app.get(
 app.post(
   "/api/shifts",
   route(async (req, res) => {
-    admin(req);
+    scheduleManager(req);
     const body = V.shift.parse(req.body);
     const dates = [
       ...new Set(body.dates?.length ? body.dates : [body.date]),
@@ -415,7 +426,7 @@ app.post(
 app.patch(
   "/api/shifts/:id",
   route(async (req, res) => {
-    admin(req);
+    scheduleManager(req);
     const id = idOf(req);
     const body = V.shiftPatch.parse(req.body);
     await transaction(req.db, async () => {
@@ -468,7 +479,7 @@ app.patch(
 app.delete(
   "/api/shifts/:id",
   route(async (req, res) => {
-    admin(req);
+    scheduleManager(req);
     const id = idOf(req);
     const reason = reasonOf(req);
     await transaction(req.db, async () => {
@@ -504,7 +515,7 @@ app.delete(
 app.post(
   "/api/shifts/:id/assignments",
   route(async (req, res) => {
-    admin(req);
+    scheduleManager(req);
     const id = idOf(req);
     const { doctor_id } = V.z.object({ doctor_id: V.uuid }).parse(req.body);
     await transaction(req.db, async () => {
@@ -532,7 +543,7 @@ app.post(
 app.delete(
   "/api/assignments/:id",
   route(async (req, res) => {
-    admin(req);
+    scheduleManager(req);
     const id = idOf(req);
     const reason = reasonOf(req);
     await transaction(req.db, async () => {
@@ -571,7 +582,7 @@ app.post(
       .parse(req.body);
     const offer = await transaction(req.db, async () => {
       const a = await Q.getAssignment(req.db, assignment_id);
-      if (req.user.role === "doctor" && a.doctor_id !== req.user.doctor_id)
+      if (a.doctor_id !== req.user.doctor_id)
         fail(403, "Você só pode disponibilizar seus próprios plantões.");
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
@@ -601,10 +612,9 @@ app.post(
   route(async (req, res) => {
     const id = idOf(req);
     const body = V.z.object({ doctor_id: V.uuid.optional() }).parse(req.body);
-    const target =
-      req.user.role === "doctor"
-        ? req.user.doctor_id
-        : body.doctor_id || req.user.doctor_id;
+    if(body.doctor_id && body.doctor_id !== req.user.doctor_id)
+      fail(403,'Você só pode assumir plantões para seu próprio cadastro médico.');
+    const target = req.user.doctor_id;
     if (!target) fail(400, "Selecione o médico que assumirá o plantão.");
     await transaction(req.db, async () => {
       const o = (
@@ -703,8 +713,8 @@ app.post(
     const doctor = await transaction(req.db, async () => {
       const d = (
         await req.db.query(
-          "INSERT INTO escala.doctors(name,crm,specialty,color) VALUES($1,$2,$3,$4) RETURNING *",
-          [b.name, b.crm || null, b.specialty, b.color],
+          "INSERT INTO escala.doctors(name,crm,specialty,color,crm_uf) VALUES($1,$2,$3,$4,$5) RETURNING *",
+          [b.name, b.crm || null, b.specialty, b.color, b.crm_uf || null],
         )
       ).rows[0];
       await Q.audit(
@@ -781,8 +791,8 @@ app.patch(
       const next = { ...d, ...b };
       const result = (
         await req.db.query(
-          "UPDATE escala.doctors SET name=$1,crm=$2,specialty=$3,color=$4,active=$5 WHERE id=$6 RETURNING *",
-          [next.name, next.crm, next.specialty, next.color, next.active, id],
+          "UPDATE escala.doctors SET name=$1,crm=$2,specialty=$3,color=$4,active=$5,crm_uf=$7 WHERE id=$6 RETURNING *",
+          [next.name, next.crm, next.specialty, next.color, next.active, id,next.crm_uf],
         )
       ).rows[0];
       await Q.audit(
@@ -804,7 +814,7 @@ app.get(
     admin(req);
     const users = (
       await req.db.query(
-        "SELECT id,name,email,role,doctor_id,active FROM escala.users ORDER BY name",
+        "SELECT id,name,email,role,doctor_id,active,approval_status,can_manage_schedule FROM escala.users ORDER BY name",
       )
     ).rows;
     const invites = (
@@ -923,11 +933,12 @@ app.patch(
     await transaction(req.db, async () => {
       const u = (
         await req.db.query(
-          "SELECT id,name,role,active,doctor_id FROM escala.users WHERE id=$1",
+          "SELECT id,name,role,active,doctor_id,approval_status,can_manage_schedule FROM escala.users WHERE id=$1",
           [id],
         )
       ).rows[0];
       if (!u) fail(404, "Conta não encontrada.");
+      if(u.approval_status!=='approved')fail(409,'Confira o cadastro pela fila de inscrições antes de alterar o acesso.');
       if (u.role === "owner" || u.id === req.user.id)
         fail(
           403,
@@ -1122,6 +1133,7 @@ app.get(
   ),
 );
 app.use("/api", reviewRouter);
+app.use("/api", workflowRouter);
 app.use("/api", (req, res) =>
   res.status(404).json({ error: "Rota não encontrada." }),
 );

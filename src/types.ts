@@ -7,11 +7,14 @@ export interface User {
   role: Role;
   doctor_id: string | null;
   active?: boolean;
+  approval_status?: "approved" | "pending" | "rejected";
+  can_manage_schedule?: boolean;
 }
 export interface Doctor {
   id: string;
   name: string;
   crm: string | null;
+  crm_uf?: string | null;
   specialty: string;
   active: boolean;
   user_id: string | null;
@@ -25,6 +28,7 @@ export interface Assignment {
   offer_id: string | null;
 }
 export interface Shift {
+  month_locked?:boolean;
   id: string;
   date: string;
   start_time: string;
@@ -117,5 +121,19 @@ export interface Report {
 export interface Auth {
   user: User;
   doctor: Doctor | null;
+  registration?: Registration | null;
 }
-export type Page = "schedule" | "offers" | "team" | "reports" | "audit";
+export interface Registration {
+ id:string; user_id:string; name:string; email:string; crm:string; crm_uf:string;
+ status:"pending"|"approved"|"rejected"; matched_doctor_id:string|null; matched_doctor_name:string|null;
+ created_at:string; decided_at:string|null; decision_note:string|null;
+ candidates?:Array<{id:string;name:string;crm:string|null;crm_uf?:string|null;user_id?:string|null;active?:boolean}>;
+}
+export type CorrectionType="profile"|"add_assignment"|"remove_assignment"|"change_assignment";
+export interface Correction {
+ id:string;user_id:string;doctor_id:string;doctor_name:string;type:CorrectionType;
+ status:"pending"|"approved"|"rejected"|"cancelled";reason:string;
+ proposed:Record<string,unknown>;before:Record<string,unknown>;created_at:string;
+ decided_at:string|null;decided_by_name:string|null;decision_note:string|null;
+}
+export type Page = "schedule" | "offers" | "team" | "reports" | "audit" | "corrections";

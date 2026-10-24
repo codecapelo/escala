@@ -15,8 +15,9 @@ try {
       "utf8",
     ),
   );
+  await db.query(await readFile(new URL("../server/workflow-schema.sql", import.meta.url), "utf8"));
   await db.query("COMMIT");
-  console.log("Migration successful: escala schema and 13 tables ready.");
+  console.log("Migration successful: escala schema and 15 tables ready.");
 } catch (e) {
   await db.query("ROLLBACK");
   console.error(e.message);

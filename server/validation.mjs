@@ -59,6 +59,7 @@ export const shiftPatch = z.object({
 export const doctor = z.object({
   name: text(180),
   crm: z.string().trim().max(40).nullable().optional(),
+  crm_uf: z.enum(['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']).nullable().optional(),
   specialty: text(120).default("Telemedicina"),
   color: z
     .string()

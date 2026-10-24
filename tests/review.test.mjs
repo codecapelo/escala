@@ -39,6 +39,7 @@ before(async () => {
       "utf8",
     ),
   );
+  await db.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
   passwordHash = await hashPassword(password);
   const { app } = await import("../server/app.mjs");
   server = app.listen(0, "127.0.0.1");

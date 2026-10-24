@@ -20,6 +20,7 @@ import {
   ChevronRight,
   LayoutGrid,
   Loader2,
+  ClipboardCheck,
 } from "lucide-react";
 import { api, post, ApiError, message } from "./api";
 import { Logo, Spinner, ErrorBox, Avatar, Modal, Confirm } from "./ui";
@@ -37,6 +38,9 @@ const OfferForm = lazy(() =>
 const AcceptOffer = lazy(() =>
   import("./ShiftForms").then((m) => ({ default: m.AcceptOffer })),
 );
+const CorrectionsView = lazy(()=>import("./CorrectionsView"));
+const RegistrationStatus = lazy(()=>import("./RegistrationViews").then(m=>({default:m.RegistrationStatus})));
+import type {CorrectionSeed} from "./CorrectionsView";
 const TeamView = lazy(() => import("./TeamView"));
 const OffersView = lazy(() =>
   import("./SecondaryViews").then((m) => ({ default: m.OffersView })),
@@ -50,13 +54,14 @@ const AuditView = lazy(() =>
 const ProfileModal = lazy(() =>
   import("./SecondaryViews").then((m) => ({ default: m.ProfileModal })),
 );
-import { dayLabel, monthLabel, roleLabels, todayISO, timeZone } from "./utils";
+import { dayLabel, monthLabel, roleLabels, todayISO, timeZone, isApproved } from "./utils";
 import type { Auth, Dashboard, Page, Shift, Offer } from "./types";
 const nav = [
   { id: "schedule", label: "Minha escala", icon: CalendarDays },
   { id: "offers", label: "Repasses", icon: ArrowRightLeft },
   { id: "team", label: "Equipe", icon: Users },
   { id: "reports", label: "Relatórios", icon: ChartNoAxesCombined },
+  { id: "corrections", label: "Conferência", icon: ClipboardCheck },
   { id: "audit", label: "Histórico", icon: Activity },
 ] as const;
 export default function App() {
@@ -70,6 +75,8 @@ export default function App() {
     [error, setError] = useState(""),
     [version, setVersion] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null),
+    [selectedSnapshot,setSelectedSnapshot]=useState<Shift|null>(null),
+    [correctionSeed,setCorrectionSeed]=useState<CorrectionSeed|null>(null),
     [form, setForm] = useState<{ shift?: Shift; date: string } | null>(null),
     [offerAssignment, setOfferAssignment] = useState<string | null>(null),
     [acceptOffer, setAcceptOffer] = useState<Offer | null>(null),
@@ -117,7 +124,7 @@ export default function App() {
     };
   }, [bootVersion]);
   useEffect(() => {
-    if (!auth) return;
+    if (!auth || !isApproved(auth.user)) return;
     let live = true;
     setLoading(true);
     setError("");
@@ -128,6 +135,9 @@ export default function App() {
       .catch((e) => {
         if (live) {
           setError(message(e));
+          if(e instanceof ApiError && (e.code==="PENDING_APPROVAL"||e.code==="REGISTRATION_REJECTED")){
+            setData(null);void api<Auth>("/auth/me").then(setAuth).catch(()=>setAuth(null));
+          }
           if (e instanceof ApiError && e.status === 401) {
             setAuth(null);
             setData(null);
@@ -161,6 +171,8 @@ export default function App() {
     setMobileMenu(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  function selectShift(shift:Shift){setSelectedSnapshot(shift);setSelectedId(shift.id);}
+  function refreshIdentity(){refresh();void api<Auth>("/auth/me").then(setAuth).catch(e=>{if(e instanceof ApiError&&e.status===401){setAuth(null);setData(null);}});}
   async function logout() {
     setLoggingOut(true);
     try {
@@ -171,7 +183,7 @@ export default function App() {
       setPage("schedule");
       notify("Sessão encerrada. Até o próximo cuidado.");
     } catch (e) {
-      notify(message(e));
+      if(e instanceof ApiError&&e.status===401){setAuth(null);setData(null);setProfile(false);}else notify(message(e));
     } finally {
       setLoggingOut(false);
     }
@@ -210,12 +222,15 @@ export default function App() {
         {toast && <Toast text={toast} close={() => setToast("")} />}
       </Suspense>
     );
+  if(!isApproved(auth.user))return <Suspense fallback={<Spinner label="Consultando aprovação…"/>}><RegistrationStatus auth={auth} onAuth={authenticated} onLogout={logout}/>{toast&&<Toast text={toast} close={()=>setToast("")}/>}</Suspense>;
   const user = data?.user || auth.user,
     admin = user.role !== "doctor";
-  const selected = data?.shifts.find((s) => s.id === selectedId);
+  const selected = selectedId ? data?.shifts.find((s)=>s.id===selectedId)||(selectedSnapshot?.id===selectedId?selectedSnapshot:undefined):undefined;
+  const ownDoctor=data?.doctors.find(d=>d.id===user.doctor_id)||auth.doctor;
   const openOffers =
     data?.offers.filter((o) => o.status === "open").length || 0;
-  const availableNav = nav.filter((n) => n.id !== "team" || admin);
+  const availableNav = nav.filter(n=>(n.id!=="team"||admin)&&(n.id!=="corrections"||admin||!!user.doctor_id));
+  const mobileNav=availableNav.length>5?availableNav.filter(n=>n.id!=="audit"):availableNav;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -280,7 +295,7 @@ export default function App() {
             <Avatar name={user.name} />
             <span>
               <strong>{user.name.split(" ").slice(0, 2).join(" ")}</strong>
-              <small>{roleLabels[user.role]}</small>
+              <small>{roleLabels[user.role]}{user.role!=="doctor"&&user.doctor_id?" · Médico":""}</small>
             </span>
             <ChevronRight size={15} />
           </button>
@@ -388,7 +403,7 @@ export default function App() {
                             : `${month}-01`),
                       })
                     }
-                    onShift={(s) => setSelectedId(s.id)}
+                    onShift={selectShift}
                     onDay={setDay}
                     onOffers={() => navigate("offers")}
                   />
@@ -432,6 +447,7 @@ export default function App() {
                     notify={notify}
                   />
                 )}{" "}
+                {page === "corrections" && <CorrectionsView user={user} doctor={ownDoctor||null} shifts={data.shifts} month={month} onMonth={changeMonth} version={version} onChanged={refreshIdentity} notify={notify} initialRequest={correctionSeed} onConsumed={()=>setCorrectionSeed(null)}/>}
                 {page === "audit" && (
                   <AuditView
                     user={user}
@@ -446,7 +462,7 @@ export default function App() {
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Navegação móvel">
-        {availableNav.map((n) => (
+        {mobileNav.map((n) => (
           <button
             key={n.id}
             className={page === n.id ? "active" : ""}
@@ -490,7 +506,8 @@ export default function App() {
             user={user}
             doctors={data.doctors}
             offers={data.offers}
-            locked={data.locked}
+            locked={selected.month_locked??data.locked}
+            onRequestCorrection={user.doctor_id&&selected.assignments.some(a=>a.doctor_id===user.doctor_id)?type=>{setCorrectionSeed({shift:selected,type});setSelectedId(null);navigate("corrections");}:undefined}
             onClose={() => setSelectedId(null)}
             onEdit={() => {
               setForm({ shift: selected, date: selected.date });
@@ -518,7 +535,7 @@ export default function App() {
                 shifts={data.shifts.filter((s) => s.date === day)}
                 onShift={(s) => {
                   setDay(null);
-                  setSelectedId(s.id);
+                  selectShift(s);
                 }}
               />
             </div>
@@ -546,7 +563,6 @@ export default function App() {
           <AcceptOffer
             offer={acceptOffer}
             user={user}
-            doctors={data.doctors}
             onClose={() => setAcceptOffer(null)}
             onSaved={() => {
               refresh();
@@ -606,6 +622,8 @@ export default function App() {
           >
             <ProfileModal
               user={user}
+              doctor={ownDoctor||null}
+              onCorrections={()=>{setProfile(false);navigate("corrections");}}
               onClose={() => setProfile(false)}
               onLogout={logout}
               notify={notify}

@@ -28,9 +28,10 @@ import {
 } from "./ui";
 import { post, patch, message } from "./api";
 import { useResource } from "./hooks";
-import { roleLabels, dayLabel } from "./utils";
+import { roleLabels, dayLabel, isApproved, crmLabel, brazilStates } from "./utils";
 import type { Doctor, User, Team, Role, Invite } from "./types";
 import ReviewView, { type ImportReview } from "./ReviewView";
+import {RegistrationQueue,SchedulePermission} from "./RegistrationViews";
 type LinkResult = { inviteUrl: string; expires_at: string };
 export default function TeamView({
   doctors,
@@ -47,7 +48,7 @@ export default function TeamView({
   notify: (s: string) => void;
   onReauthenticate: () => void;
 }) {
-  const [tab, setTab] = useState<"doctors" | "access" | "review">("doctors"),
+  const [tab, setTab] = useState<"doctors" | "access" | "review" | "registrations">("doctors"),
     [search, setSearch] = useState(""),
     [showInactive, setShowInactive] = useState(false),
     [editDoctor, setEditDoctor] = useState<Doctor | null | undefined>(
@@ -122,7 +123,7 @@ export default function TeamView({
           </span>
           <span>
             <strong>
-              {team?.users.filter((u) => u.active !== false).length ?? "—"}
+              {team?.users.filter((u) => u.active !== false && isApproved(u)).length ?? "—"}
             </strong>{" "}
             usuários com acesso
             <small>Permissões para cada responsabilidade</small>
@@ -146,6 +147,7 @@ export default function TeamView({
         </div>
       </div>
       <div className="section-tabs">
+        <button className={tab==="registrations"?"active":""} onClick={()=>setTab("registrations")}><UserRoundCheck size={17}/>Cadastros pendentes</button>
         <button
           className={tab === "doctors" ? "active" : ""}
           onClick={() => setTab("doctors")}
@@ -241,7 +243,7 @@ export default function TeamView({
                   <div className="doctor-card-meta">
                     <span>
                       <Stethoscope size={14} />
-                      {d.crm ? `CRM ${d.crm}` : "CRM não informado"}
+                      {crmLabel(d)}
                     </span>
                     <span>
                       <Shield size={14} />
@@ -287,7 +289,7 @@ export default function TeamView({
             </div>
           )}
         </>
-      ) : tab === "review" ? (
+      ) : tab === "registrations" ? <RegistrationQueue doctors={doctors} version={version} onChanged={onChanged} notify={notify}/> : tab === "review" ? (
         <ReviewView
           resource={reviewResource}
           onChanged={onChanged}
@@ -315,6 +317,7 @@ export default function TeamView({
                     <th>Usuário</th>
                     <th>Permissão</th>
                     <th>Médico vinculado</th>
+                    <th>Gestão de escala</th>
                     <th>Status</th>
                     <th>
                       <span className="sr-only">Ações</span>
@@ -348,17 +351,18 @@ export default function TeamView({
                       <td>
                         {doctors.find((d) => d.id === u.doctor_id)?.name || "—"}
                       </td>
+                      <td><SchedulePermission user={u} onChanged={onChanged} notify={notify}/></td>
                       <td>
                         <span
                           className={`status-pill ${u.active !== false ? "status-success" : "status-muted"}`}
                         >
                           <span />
-                          {u.active !== false ? "Ativo" : "Inativo"}
+                          {!isApproved(u)?u.approval_status==="rejected"?"Não aprovado":"Em análise":u.active!==false?"Ativo":"Inativo"}
                         </span>
                       </td>
                       <td>
                         <div className="table-actions">
-                          {owner && u.role !== "owner" && u.id !== user.id && (
+                          {owner && isApproved(u) && u.role !== "owner" && u.id !== user.id && (
                             <button
                               className="icon-button"
                               title="Editar acesso"
@@ -368,7 +372,7 @@ export default function TeamView({
                               <Pencil size={15} />
                             </button>
                           )}
-                          {u.role !== "owner" &&
+                          {isApproved(u) && u.role !== "owner" &&
                             (owner || u.role === "doctor") &&
                             u.id !== user.id && (
                               <button
@@ -610,6 +614,7 @@ function DoctorForm({
     const data = {
       name: String(f.get("name")).trim(),
       crm: String(f.get("crm")).trim() || null,
+      crm_uf:String(f.get("crm_uf")||"")||null,
       specialty: String(f.get("specialty")).trim(),
       color,
     };
@@ -646,10 +651,12 @@ function DoctorForm({
               <input
                 name="crm"
                 defaultValue={doctor?.crm || ""}
-                placeholder="12345/CE"
+                placeholder="12345"
+                inputMode="numeric"
                 maxLength={40}
               />
             </Field>
+            <Field label="UF do CRM"><select name="crm_uf" defaultValue={doctor?.crm_uf||"CE"}>{brazilStates.map(uf=><option key={uf} value={uf}>{uf}</option>)}</select></Field>
             <Field label="Especialidade">
               <input
                 name="specialty"

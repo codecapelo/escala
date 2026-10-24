@@ -33,6 +33,7 @@ import {
   hours,
   formatNumber,
   isUpcoming,
+  canEditSchedule,
 } from "./utils";
 import type { Doctor, Shift, User, Period, Offer } from "./types";
 export function ShiftForm({
@@ -369,6 +370,7 @@ export function ShiftDetail({
   onEdit,
   onChanged,
   onOffer,
+  onRequestCorrection,
 }: {
   shift: Shift;
   user: User;
@@ -379,8 +381,9 @@ export function ShiftDetail({
   onEdit: () => void;
   onChanged: () => void;
   onOffer: (a: string) => void;
+  onRequestCorrection?:(type:"change_assignment"|"remove_assignment")=>void;
 }) {
-  const admin = user.role !== "doctor";
+  const admin = canEditSchedule(user);
   const [confirm, setConfirm] = useState<{
       type: "delete" | "remove";
       id: string;
@@ -507,7 +510,7 @@ export function ShiftDetail({
                     </small>
                   </div>
                   {!locked &&
-                    (admin || user.doctor_id === a.doctor_id) &&
+                    user.doctor_id === a.doctor_id &&
                     !offer &&
                     isUpcoming(shift.date, shift.start_time) && (
                       <button
@@ -543,6 +546,7 @@ export function ShiftDetail({
               />
             )}
           </div>
+          {onRequestCorrection&&<div className="workflow-detail-correction"><div><strong>Precisa corrigir sua participação?</strong><p>Envie um pedido para a coordenação conferir antes de alterar a escala.</p></div><div className="button-row"><button className="button button-secondary button-sm" onClick={()=>onRequestCorrection("change_assignment")}><Pencil size={14}/>Solicitar ajuste</button><button className="button button-ghost button-sm" onClick={()=>onRequestCorrection("remove_assignment")}>Este plantão não é meu</button></div></div>}
           {adding && (
             <form className="inline-add" onSubmit={add}>
               <select
@@ -696,98 +700,8 @@ export function OfferForm({
     </Modal>
   );
 }
-export function AcceptOffer({
-  offer,
-  user,
-  doctors,
-  onClose,
-  onSaved,
-}: {
-  offer: Offer;
-  user: User;
-  doctors: Doctor[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [doctor, setDoctor] = useState(user.doctor_id || ""),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const admin = user.role !== "doctor";
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await post(
-        `/offers/${offer.id}/accept`,
-        admin ? { doctor_id: doctor } : {},
-      );
-      onSaved();
-      onClose();
-    } catch (e) {
-      setError(message(e));
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal
-      title="Assumir este plantão?"
-      subtitle="Confira os detalhes antes de confirmar."
-      onClose={onClose}
-    >
-      <form onSubmit={submit}>
-        <div className="modal-body">
-          <div className="accept-summary">
-            <PeriodBadge period={offer.period} />
-            <h3>
-              {dayLabel(offer.date, {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
-            </h3>
-            <p>
-              {offer.start_time} às {offer.end_time} · {offer.unit}
-            </p>
-            <span>Repasse de {offer.from_name}</span>
-          </div>
-          {admin && (
-            <Field label="Médico que assumirá">
-              <select
-                value={doctor}
-                onChange={(e) => setDoctor(e.target.value)}
-                required
-              >
-                <option value="">Selecione um médico</option>
-                {doctors
-                  .filter((d) => d.active && d.id !== offer.from_doctor_id)
-                  .map((d) => (
-                    <option value={d.id} key={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-          )}
-          <p className="confirm-description">
-            Ao confirmar, o plantão será transferido para{" "}
-            {admin ? "o médico selecionado" : "você"} e a alteração será
-            registrada no histórico. O sistema verifica conflitos de horário
-            automaticamente.
-          </p>
-          {error && <ErrorBox>{error}</ErrorBox>}
-        </div>
-        <div className="modal-footer">
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Voltar
-          </button>
-          <Submit busy={busy}>Confirmar e assumir</Submit>
-        </div>
-      </form>
-    </Modal>
-  );
+export function AcceptOffer({offer,user,onClose,onSaved}:{offer:Offer;user:User;onClose:()=>void;onSaved:()=>void}){
+ const[busy,setBusy]=useState(false),[error,setError]=useState("");
+ async function submit(e:FormEvent){e.preventDefault();setBusy(true);try{await post(`/offers/${offer.id}/accept`,{});onSaved();onClose();}catch(e){setError(message(e));setBusy(false);}}
+ return <Modal title="Assumir este plantão?" subtitle="Confira os detalhes antes de confirmar." onClose={onClose}><form onSubmit={submit}><div className="modal-body"><div className="accept-summary"><PeriodBadge period={offer.period}/><h3>{dayLabel(offer.date,{weekday:"long",day:"numeric",month:"long"})}</h3><p>{offer.start_time} às {offer.end_time} · {offer.unit}</p><span>Repasse de {offer.from_name}</span></div><div className="workflow-self-recipient"><Avatar name={user.name} small/><div><strong>Você assumirá este plantão</strong><span>{user.name}</span></div></div><p className="confirm-description">O repasse é concluído no aceite, sem aprovação administrativa. O plantão será transferido para você após verificar conflitos de horário. A origem, o destino e o horário ficam registrados no histórico.</p>{!user.doctor_id&&<ErrorBox>Seu acesso precisa estar vinculado a um cadastro médico para assumir um plantão.</ErrorBox>}{error&&<ErrorBox>{error}</ErrorBox>}</div><div className="modal-footer"><button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>Voltar</button><Submit busy={busy} disabled={!user.doctor_id||user.doctor_id===offer.from_doctor_id}>Confirmar e assumir</Submit></div></form></Modal>;
 }
