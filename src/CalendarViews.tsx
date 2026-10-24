@@ -1,3 +1,4 @@
+import { previewProps } from "./ShiftPreview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -214,9 +215,7 @@ function AgendaShift({
       type="button"
       className={`agenda-shift-card ${shift.period}`}
       onClick={() => onShift(shift)}
-      title={shift.assignments
-        .map((assignment) => assignment.doctor_name)
-        .join(", ")}
+      {...previewProps(shift)}
     >
       <div className="agenda-shift-heading">
         <PeriodBadge period={shift.period} />

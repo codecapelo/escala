@@ -18,6 +18,7 @@ import {
   AlertCircle,
   CalendarRange,
   Loader2,
+  ArrowDownUp,
 } from "lucide-react";
 import { Avatar, Empty, ErrorBox, PeriodBadge, PeriodIcon } from "./ui";
 import {
@@ -28,6 +29,7 @@ import {
   weekDates,
 } from "./CalendarViews";
 import type { ScheduleView } from "./CalendarViews";
+import { previewProps, ShiftPreviewHost } from "./ShiftPreview";
 import "./calendar.css";
 import {
   dateLocal,
@@ -42,7 +44,10 @@ import {
   toISO,
   canEditSchedule,
   isUpcoming,
+  compareShifts,
+  shiftOrders,
 } from "./utils";
+import type { ShiftOrder } from "./utils";
 import type { Dashboard, Period, Shift, User } from "./types";
 export function MonthControl({
   month,
@@ -97,7 +102,8 @@ export default function Schedule({
   const [focusDate, setFocusDate] = useState(() =>
     month === todayISO().slice(0, 7) ? todayISO() : `${month}-01`,
   );
-  const [doctor, setDoctor] = useState(""),
+  const [order, setOrder] = useState<ShiftOrder>("time"),
+    [doctor, setDoctor] = useState(""),
     [period, setPeriod] = useState(""),
     [reviewOnly, setReviewOnly] = useState(false);
   useEffect(() => {
@@ -134,12 +140,8 @@ export default function Schedule({
             (!period || shift.period === period) &&
             (!reviewOnly || shift.needs_review),
         )
-        .sort((left, right) =>
-          `${left.date}${left.start_time}`.localeCompare(
-            `${right.date}${right.start_time}`,
-          ),
-        ),
-    [sourceShifts, doctor, period, reviewOnly],
+        .sort(compareShifts(order)),
+    [sourceShifts, doctor, period, reviewOnly, order],
   );
   const ownShifts = user.doctor_id
     ? data.shifts.filter((shift) =>
@@ -468,6 +470,20 @@ export default function Schedule({
               <span>Limpar</span>
             </button>
           )}
+          <label className="filter-select order-select">
+            <ArrowDownUp size={15} />
+            <select
+              aria-label="Ordem de visualização"
+              value={order}
+              onChange={(e) => setOrder(e.target.value as ShiftOrder)}
+            >
+              {shiftOrders.map((o) => (
+                <option key={o.id} value={o.id}>
+                  Ordem: {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="filter-count">{shifts.length} plantões</span>
         </div>
         {agenda && calendar.loading && (
@@ -538,7 +554,7 @@ export default function Schedule({
             onDay={onDay}
           />
         ) : (
-          <ShiftList shifts={shifts} onShift={onShift} />
+          <ShiftList shifts={shifts} onShift={onShift} order={order} />
         )}
         <div className="calendar-footer">
           <div className="calendar-legend">
@@ -555,6 +571,7 @@ export default function Schedule({
           </span>
         </div>
       </section>
+      <ShiftPreviewHost ownDoctorId={user.doctor_id} />
       <div className="page-footnote">
         <span>Escalas bem organizadas. Pessoas bem cuidadas.</span>
         <span>
@@ -691,7 +708,7 @@ function CalendarGrid({
                         className={`calendar-shift ${s.period} ${s.needs_review ? "needs-review" : ""}`}
                         onClick={() => onShift(s)}
                         key={s.id}
-                        title={`${periods[s.period].label}, ${s.start_time} às ${s.end_time}. ${s.assignments.map((a) => a.doctor_name).join(", ")}`}
+                        {...previewProps(s)}
                       >
                         <span className="calendar-shift-time">
                           {s.needs_review && (
@@ -738,14 +755,14 @@ function CalendarGrid({
 export function ShiftList({
   shifts,
   onShift,
+  order = "time",
 }: {
   shifts: Shift[];
   onShift: (s: Shift) => void;
+  order?: ShiftOrder;
 }) {
   const grouped = new Map<string, Shift[]>();
-  for (const s of [...shifts].sort((a, b) =>
-    `${a.date}${a.start_time}`.localeCompare(`${b.date}${b.start_time}`),
-  )) {
+  for (const s of [...shifts].sort(compareShifts(order))) {
     grouped.set(s.date, [...(grouped.get(s.date) || []), s]);
   }
   return (

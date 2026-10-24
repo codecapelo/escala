@@ -104,7 +104,11 @@ async function invoke(
   const text = result.isBase64Encoded
     ? Buffer.from(result.body, "base64").toString("utf8")
     : result.body;
-  return { ...result, json: text ? JSON.parse(text) : null };
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {}
+  return { ...result, json };
 }
 
 for (const path of ["/api/auth/login", "/.netlify/functions/api/auth/login"]) {
@@ -289,4 +293,13 @@ test("actual handler uses platform client IP buckets only when NETLIFY is enable
     if (saved === undefined) delete process.env.NETLIFY;
     else process.env.NETLIFY = saved;
   }
+});
+
+test("actual handler returns the schedule PDF base64-encoded and byte-exact", async () => {
+  const r = await invoke("/api/schedule/export", { authenticated: true, query: { month: "2099-11" } });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.headers["content-type"], "application/pdf");
+  assert.equal(r.isBase64Encoded, true);
+  assert.equal(Buffer.from(r.body, "base64").subarray(0, 5).toString("latin1"), "%PDF-");
+  assert.ok(Buffer.from(r.body, "base64").subarray(-6).toString("latin1").includes("%%EOF"));
 });

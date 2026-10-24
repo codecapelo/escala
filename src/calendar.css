@@ -692,3 +692,130 @@
     height: 13px;
   }
 }
+.shift-preview {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  background: #fffefa;
+  border: 1px solid #d9e0d2;
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(20, 52, 36, 0.2);
+  padding: 14px 16px;
+  color: #29412f;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.shift-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.shift-preview-head strong {
+  font-size: 18px;
+  font-weight: 600;
+}
+.shift-preview-head strong span {
+  font-size: 12px;
+  font-weight: 400;
+  color: #6b7d6e;
+}
+.shift-preview-head small {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: #6b7d6e;
+}
+.shift-preview-unit {
+  margin: 6px 0 10px;
+  color: #6b7d6e;
+}
+.shift-preview-count {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 600;
+  padding-top: 10px;
+  border-top: 1px solid #e7ece1;
+  margin-bottom: 6px;
+}
+.shift-preview-count span {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  font-weight: 500;
+  font-size: 11px;
+  color: #a35d32;
+  background: #f8ece3;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.shift-preview ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shift-preview ul.two-columns {
+  columns: 2;
+  column-gap: 18px;
+}
+.shift-preview li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  break-inside: avoid;
+}
+.shift-preview li i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.shift-preview li.own {
+  font-weight: 700;
+  color: #147d83;
+}
+.shift-preview li b {
+  font-size: 10px;
+  background: #147d83;
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.shift-preview-more,
+.shift-preview-empty,
+.shift-preview-review,
+.shift-preview-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #6b7d6e;
+}
+.shift-preview-review {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: #a35d32;
+}
+.shift-preview-hint {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid #e7ece1;
+}
+.order-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.report-sort {
+  height: 40px;
+  border: 1px solid #d9e0d2;
+  border-radius: 10px;
+  background: #fffefa;
+  color: #29412f;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+}

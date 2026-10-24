@@ -95,7 +95,82 @@ export function isUpcoming(date: string, time: string) {
   );
 }
 
-export function isApproved(user:User){return !user.approval_status||user.approval_status==='approved';}
-export function canEditSchedule(user:User){return isApproved(user)&&(user.role==='owner'||user.role==='admin'||!!user.can_manage_schedule);}
-export function crmLabel(doctor:Pick<Doctor,'crm'|'crm_uf'>){return doctor.crm?`CRM ${doctor.crm}${doctor.crm_uf?`/${doctor.crm_uf}`:''}`:'CRM não informado';}
-export const brazilStates=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+export function isApproved(user: User) {
+  return !user.approval_status || user.approval_status === "approved";
+}
+export function canEditSchedule(user: User) {
+  return (
+    isApproved(user) &&
+    (user.role === "owner" ||
+      user.role === "admin" ||
+      !!user.can_manage_schedule)
+  );
+}
+export function crmLabel(doctor: Pick<Doctor, "crm" | "crm_uf">) {
+  return doctor.crm
+    ? `CRM ${doctor.crm}${doctor.crm_uf ? `/${doctor.crm_uf}` : ""}`
+    : "CRM não informado";
+}
+export const brazilStates = [
+  "AC",
+  "AL",
+  "AP",
+  "AM",
+  "BA",
+  "CE",
+  "DF",
+  "ES",
+  "GO",
+  "MA",
+  "MT",
+  "MS",
+  "MG",
+  "PA",
+  "PB",
+  "PR",
+  "PE",
+  "PI",
+  "RJ",
+  "RN",
+  "RS",
+  "RO",
+  "RR",
+  "SC",
+  "SP",
+  "SE",
+  "TO",
+];
+export type ShiftOrder = "time" | "period" | "team_desc" | "team_asc";
+export const shiftOrders: { id: ShiftOrder; label: string }[] = [
+  { id: "time", label: "Horário (padrão)" },
+  { id: "period", label: "Turno: manhã → madrugada" },
+  { id: "team_desc", label: "Mais médicos primeiro" },
+  { id: "team_asc", label: "Menos médicos primeiro" },
+];
+const periodRank: Record<Period, number> = {
+  morning: 0,
+  afternoon: 1,
+  night: 2,
+  dawn: 3,
+};
+type Orderable = {
+  date: string;
+  start_time: string;
+  period: Period;
+  assignments: unknown[];
+};
+// Days always stay in date order; the choice only reorders shifts within a day.
+export function compareShifts(order: ShiftOrder) {
+  return (a: Orderable, b: Orderable) => {
+    const byDate = a.date.localeCompare(b.date);
+    if (byDate) return byDate;
+    const byTime = a.start_time.localeCompare(b.start_time);
+    if (order === "period")
+      return periodRank[a.period] - periodRank[b.period] || byTime;
+    if (order === "team_desc")
+      return b.assignments.length - a.assignments.length || byTime;
+    if (order === "team_asc")
+      return a.assignments.length - b.assignments.length || byTime;
+    return byTime;
+  };
+}

@@ -356,7 +356,8 @@ export function ReportsView({
   );
   const [search, setSearch] = useState(""),
     [expanded, setExpanded] = useState<string | null>(null),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState(false),
+    [sort, setSort] = useState<"name" | "hours" | "turns" | "days">("name");
   async function download() {
     setExporting(true);
     try {
@@ -373,6 +374,15 @@ export function ReportsView({
       `${r.name} ${r.crm}`
         .toLocaleLowerCase()
         .includes(search.toLocaleLowerCase()),
+    ).sort((a, b) =>
+      sort === "hours"
+        ? b.hours - a.hours || a.name.localeCompare(b.name, "pt-BR")
+        : sort === "turns"
+          ? b.turns - a.turns || a.name.localeCompare(b.name, "pt-BR")
+          : sort === "days"
+            ? b.days.length - a.days.length ||
+              a.name.localeCompare(b.name, "pt-BR")
+            : a.name.localeCompare(b.name, "pt-BR"),
     ) || [];
   return (
     <>
@@ -464,6 +474,17 @@ export function ReportsView({
                   Dias trabalhados, turnos e horas, em uma visão consolidada.
                 </p>
               </div>
+              <select
+                className="report-sort"
+                aria-label="Ordem do relatório"
+                value={sort}
+                onChange={(e) => setSort(e.target.value as typeof sort)}
+              >
+                <option value="name">Ordem: nome A–Z</option>
+                <option value="hours">Ordem: mais horas</option>
+                <option value="turns">Ordem: mais plantões</option>
+                <option value="days">Ordem: mais dias</option>
+              </select>
               <div className="input-icon compact-search">
                 <Search size={16} />
                 <input

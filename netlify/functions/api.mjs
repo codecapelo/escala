@@ -1,6 +1,7 @@
 import serverless from "serverless-http";
 import { app } from "../../server/app.mjs";
-const wrapped = serverless(app);
+// PDFs must travel base64-encoded through the Lambda adapter or they arrive corrupted.
+const wrapped = serverless(app, { binary: ["application/pdf"] });
 export async function handler(event, context) {
   const original = event.path || "/";
   if (original.startsWith("/.netlify/functions/api"))
