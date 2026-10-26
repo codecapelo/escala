@@ -29,8 +29,14 @@ export const login = z.object({
 });
 export const activate = z.object({
   token: z.string().min(32).max(128),
-  name: text(180),
+  name: text(180).optional(),
   password,
+});
+export const forgot = z.object({
+  email: z
+    .email()
+    .max(254)
+    .transform((x) => x.toLowerCase().trim()),
 });
 export const shift = z
   .object({

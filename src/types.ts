@@ -99,6 +99,7 @@ export interface Invite {
 export interface Team {
   users: User[];
   invites: Invite[];
+  mail_configured?: boolean;
 }
 export interface ReportRow {
   doctor_id: string;

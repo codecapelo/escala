@@ -15,6 +15,7 @@ import {
   Power,
   X,
   LockKeyhole,
+  KeyRound,
 } from "lucide-react";
 import {
   Avatar,
@@ -28,10 +29,17 @@ import {
 } from "./ui";
 import { post, patch, message } from "./api";
 import { useResource } from "./hooks";
-import { roleLabels, dayLabel, isApproved, crmLabel, brazilStates } from "./utils";
+import {
+  roleLabels,
+  dayLabel,
+  isApproved,
+  crmLabel,
+  brazilStates,
+} from "./utils";
 import type { Doctor, User, Team, Role, Invite } from "./types";
 import ReviewView, { type ImportReview } from "./ReviewView";
-import {RegistrationQueue,SchedulePermission} from "./RegistrationViews";
+import { RegistrationQueue, SchedulePermission } from "./RegistrationViews";
+import SetPassword from "./PasswordAdmin";
 import InactivateDoctor, { type UpcomingShift } from "./InactivateDoctor";
 type LinkResult = { inviteUrl: string; expires_at: string };
 export default function TeamView({
@@ -51,13 +59,16 @@ export default function TeamView({
   onReauthenticate: () => void;
   onOpenShift: (shift: UpcomingShift) => void;
 }) {
-  const [tab, setTab] = useState<"doctors" | "access" | "review" | "registrations">("doctors"),
+  const [tab, setTab] = useState<
+      "doctors" | "access" | "review" | "registrations"
+    >("doctors"),
     [search, setSearch] = useState(""),
     [showInactive, setShowInactive] = useState(false),
     [editDoctor, setEditDoctor] = useState<Doctor | null | undefined>(
       undefined,
     ),
     [invite, setInvite] = useState(false),
+    [passwordUser, setPasswordUser] = useState<User | null>(null),
     [editUser, setEditUser] = useState<User | null>(null),
     [link, setLink] = useState<LinkResult | null>(null),
     [confirm, setConfirm] = useState<{
@@ -126,7 +137,8 @@ export default function TeamView({
           </span>
           <span>
             <strong>
-              {team?.users.filter((u) => u.active !== false && isApproved(u)).length ?? "—"}
+              {team?.users.filter((u) => u.active !== false && isApproved(u))
+                .length ?? "—"}
             </strong>{" "}
             usuários com acesso
             <small>Permissões para cada responsabilidade</small>
@@ -150,7 +162,13 @@ export default function TeamView({
         </div>
       </div>
       <div className="section-tabs">
-        <button className={tab==="registrations"?"active":""} onClick={()=>setTab("registrations")}><UserRoundCheck size={17}/>Cadastros pendentes</button>
+        <button
+          className={tab === "registrations" ? "active" : ""}
+          onClick={() => setTab("registrations")}
+        >
+          <UserRoundCheck size={17} />
+          Cadastros pendentes
+        </button>
         <button
           className={tab === "doctors" ? "active" : ""}
           onClick={() => setTab("doctors")}
@@ -292,7 +310,14 @@ export default function TeamView({
             </div>
           )}
         </>
-      ) : tab === "registrations" ? <RegistrationQueue doctors={doctors} version={version} onChanged={onChanged} notify={notify}/> : tab === "review" ? (
+      ) : tab === "registrations" ? (
+        <RegistrationQueue
+          doctors={doctors}
+          version={version}
+          onChanged={onChanged}
+          notify={notify}
+        />
+      ) : tab === "review" ? (
         <ReviewView
           resource={reviewResource}
           onChanged={onChanged}
@@ -354,28 +379,44 @@ export default function TeamView({
                       <td>
                         {doctors.find((d) => d.id === u.doctor_id)?.name || "—"}
                       </td>
-                      <td><SchedulePermission user={u} onChanged={onChanged} notify={notify}/></td>
+                      <td>
+                        <SchedulePermission
+                          user={u}
+                          onChanged={onChanged}
+                          notify={notify}
+                        />
+                      </td>
                       <td>
                         <span
                           className={`status-pill ${u.active !== false ? "status-success" : "status-muted"}`}
                         >
                           <span />
-                          {!isApproved(u)?u.approval_status==="rejected"?"Não aprovado":"Em análise":u.active!==false?"Ativo":"Inativo"}
+                          {!isApproved(u)
+                            ? u.approval_status === "rejected"
+                              ? "Não aprovado"
+                              : "Em análise"
+                            : u.active !== false
+                              ? "Ativo"
+                              : "Inativo"}
                         </span>
                       </td>
                       <td>
                         <div className="table-actions">
-                          {owner && isApproved(u) && u.role !== "owner" && u.id !== user.id && (
-                            <button
-                              className="icon-button"
-                              title="Editar acesso"
-                              aria-label={`Editar acesso de ${u.name}`}
-                              onClick={() => setEditUser(u)}
-                            >
-                              <Pencil size={15} />
-                            </button>
-                          )}
-                          {isApproved(u) && u.role !== "owner" &&
+                          {owner &&
+                            isApproved(u) &&
+                            u.role !== "owner" &&
+                            u.id !== user.id && (
+                              <button
+                                className="icon-button"
+                                title="Editar acesso"
+                                aria-label={`Editar acesso de ${u.name}`}
+                                onClick={() => setEditUser(u)}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                            )}
+                          {isApproved(u) &&
+                            u.role !== "owner" &&
                             (owner || u.role === "doctor") &&
                             u.id !== user.id && (
                               <button
@@ -388,6 +429,40 @@ export default function TeamView({
                               >
                                 <RefreshCw size={15} />
                               </button>
+                            )}
+                          {isApproved(u) &&
+                            u.role !== "owner" &&
+                            (owner || u.role === "doctor") &&
+                            u.id !== user.id && (
+                              <>
+                                {team.mail_configured && (
+                                  <button
+                                    className="icon-button"
+                                    title="Enviar link de redefinição por e-mail"
+                                    aria-label={`Enviar link de redefinição por e-mail para ${u.name}`}
+                                    onClick={async () => {
+                                      try {
+                                        const r = await post<{ email: string }>(
+                                          `/team/${u.id}/send-reset`,
+                                        );
+                                        notify(`Link enviado para ${r.email}.`);
+                                      } catch (e) {
+                                        notify(message(e));
+                                      }
+                                    }}
+                                  >
+                                    <Mail size={15} />
+                                  </button>
+                                )}
+                                <button
+                                  className="icon-button"
+                                  title="Definir nova senha"
+                                  aria-label={`Definir nova senha para ${u.name}`}
+                                  onClick={() => setPasswordUser(u)}
+                                >
+                                  <KeyRound size={15} />
+                                </button>
+                              </>
                             )}
                         </div>
                       </td>
@@ -533,6 +608,13 @@ export default function TeamView({
         />
       )}
       {link && <InviteLink result={link} onClose={() => setLink(null)} />}{" "}
+      {passwordUser && (
+        <SetPassword
+          user={passwordUser}
+          onClose={() => setPasswordUser(null)}
+          onSaved={() => notify("Senha alterada.")}
+        />
+      )}
       {confirm?.type === "doctor" && confirm.doctor?.active && (
         <InactivateDoctor
           doctor={confirm.doctor}
@@ -631,7 +713,7 @@ function DoctorForm({
     const data = {
       name: String(f.get("name")).trim(),
       crm: String(f.get("crm")).trim() || null,
-      crm_uf:String(f.get("crm_uf")||"")||null,
+      crm_uf: String(f.get("crm_uf") || "") || null,
       specialty: String(f.get("specialty")).trim(),
       color,
     };
@@ -673,7 +755,15 @@ function DoctorForm({
                 maxLength={40}
               />
             </Field>
-            <Field label="UF do CRM"><select name="crm_uf" defaultValue={doctor?.crm_uf||"CE"}>{brazilStates.map(uf=><option key={uf} value={uf}>{uf}</option>)}</select></Field>
+            <Field label="UF do CRM">
+              <select name="crm_uf" defaultValue={doctor?.crm_uf || "CE"}>
+                {brazilStates.map((uf) => (
+                  <option key={uf} value={uf}>
+                    {uf}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Especialidade">
               <input
                 name="specialty"

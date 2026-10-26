@@ -210,7 +210,11 @@ export default function App() {
         )}
       </div>
     );
-  if (!auth || window.location.pathname === "/ativar")
+  if (
+    !auth ||
+    window.location.pathname === "/ativar" ||
+    window.location.pathname === "/redefinir"
+  )
     return (
       <Suspense
         fallback={

@@ -1356,3 +1356,99 @@ test("a saved week model repeats through the whole month and can be listed and d
   assert.equal((await api(`/templates/${t.id}`, { method: "DELETE", body: {} })).status, 200);
   assert.equal((await api("/templates")).body.templates.length, 0);
 });
+
+// Resend is intercepted in-process; every other request goes through untouched.
+function captureMail(t) {
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  process.env.RESEND_API_KEY = "re_test_key";
+  process.env.MAIL_FROM = "Escala <escala@example.test>";
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith("https://api.resend.com/")) {
+      sent.push({ url: String(url), auth: init.headers.Authorization, ...JSON.parse(init.body) });
+      return new Response(JSON.stringify({ id: "mail_1" }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return realFetch(url, init);
+  };
+  t.after(() => {
+    globalThis.fetch = realFetch;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.MAIL_FROM;
+  });
+  return sent;
+}
+const tokenIn = (mail) => new URL(mail.text.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+
+test("forgot password e-mails a one-use link, answers identically for unknown addresses and throttles abuse", async (t) => {
+  const sent = captureMail(t);
+  const unknown = await post("/auth/forgot", { email: "nobody@example.test" }, null);
+  assert.equal(unknown.status, 200);
+  assert.deepEqual(unknown.body, { ok: true });
+  assert.equal(sent.length, 0);
+  const known = await post("/auth/forgot", { email: "A@example.test" }, null);
+  assert.deepEqual(known.body, unknown.body);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].to, ["a@example.test"]);
+  assert.equal(sent[0].auth, "Bearer re_test_key");
+  assert.match(sent[0].text, /\/redefinir\?token=/);
+  assert.ok(!JSON.stringify(sent[0]).includes("password_hash"));
+  const token = tokenIn(sent[0]);
+  const stored = await row("SELECT * FROM escala.invites WHERE email='a@example.test' AND kind='reset'");
+  assert.notEqual(stored.token_hash, token, "only a hash of the token is stored");
+  const bad = await post("/auth/activate", { token, password: "short" }, null);
+  assert.equal(bad.status, 400);
+  const ok = await post("/auth/activate", { token, password: "Nova-senha-2026!" }, null);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal((await post("/auth/login", { email: "a@example.test", password }, null)).status, 401);
+  assert.equal((await post("/auth/login", { email: "a@example.test", password: "Nova-senha-2026!" }, null)).status, 200);
+  assert.equal((await post("/auth/activate", { token, password: "Outra-senha-2026!" }, null)).status, 400);
+  assert.equal((await api("/auth/me", { cookie: f.a.cookie, as: null })).status, 401, "old sessions end");
+  await post("/auth/forgot", { email: "b@example.test" }, null);
+  await post("/auth/forgot", { email: "b@example.test" }, null);
+  await post("/auth/forgot", { email: "b@example.test" }, null);
+  assert.equal((await post("/auth/forgot", { email: "b@example.test" }, null)).status, 429);
+  assert.equal((await post("/auth/forgot", { email: "not-an-email" }, null)).status, 400);
+});
+
+test("forgot password never fails loudly when mail is not configured or the provider rejects it", async () => {
+  const r = await post("/auth/forgot", { email: "a@example.test" }, null);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true });
+});
+
+test("administrators set a doctor's password directly; owner-only for staff accounts; everything is audited", async () => {
+  const set = (id, pw, as = "admin") => post(`/team/${id}/password`, { password: pw }, as);
+  assert.equal((await set(f.a.user.id, "Senha-definida-2026!", "b")).status, 403);
+  assert.equal((await set(f.a.user.id, "curta")).status, 400);
+  assert.equal((await set(f.admin.user.id, "Senha-definida-2026!")).status, 400, "own password uses the profile");
+  assert.equal((await set(f.owner.user.id, "Senha-definida-2026!")).status, 403, "staff accounts are owner-only");
+  assert.equal((await set(f.a.user.id, "Senha-definida-2026!")).status, 200);
+  assert.equal((await api("/auth/me", { as: "a" })).status, 401, "sessions are revoked");
+  assert.equal((await post("/auth/login", { email: "a@example.test", password }, null)).status, 401);
+  assert.equal((await post("/auth/login", { email: "a@example.test", password: "Senha-definida-2026!" }, null)).status, 200);
+  const audit = await row("SELECT * FROM escala.audit WHERE action='password_set_by_admin'");
+  assert.equal(audit.actor_id, f.admin.user.id);
+  assert.ok(!JSON.stringify(audit).includes("Senha-definida"));
+  assert.equal((await set(f.admin.user.id, "Senha-do-admin-2026!", "owner")).status, 200);
+});
+
+test("administrators can e-mail a recovery link; without mail configuration they get a clear error", async (t) => {
+  assert.equal((await post(`/team/${f.a.user.id}/send-reset`, {}, "admin")).body.code, "MAIL_NOT_CONFIGURED");
+  const sent = captureMail(t);
+  assert.equal((await post(`/team/${f.a.user.id}/send-reset`, {}, "b")).status, 403);
+  assert.equal((await post(`/team/${f.owner.user.id}/send-reset`, {}, "admin")).status, 403);
+  const ok = await post(`/team/${f.a.user.id}/send-reset`, {}, "admin");
+  assert.equal(ok.status, 200);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].to, ["a@example.test"]);
+  assert.equal((await post("/auth/activate", { token: tokenIn(sent[0]), password: "Nova-senha-2026!" }, null)).status, 200);
+  assert.ok(await row("SELECT 1 x FROM escala.audit WHERE action='recovery_emailed'"));
+});
+
+test("the UI only offers e-mail recovery when e-mail sending is configured", async (t) => {
+  assert.deepEqual((await api("/auth/options", { as: null })).body, { forgot: false });
+  assert.equal((await api("/team")).body.mail_configured, false);
+  captureMail(t);
+  assert.deepEqual((await api("/auth/options", { as: null })).body, { forgot: true });
+  assert.equal((await api("/team")).body.mail_configured, true);
+});

@@ -64,3 +64,23 @@
     grid-template-columns: 1fr;
   }
 }
+.auth-forgot {
+  justify-self: start;
+  margin: -6px 0 2px;
+  font-size: 13px;
+}
+.auth-sent {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #b7d6c0;
+  background: #f1f8f2;
+  border-radius: 14px;
+  padding: 18px;
+}
+.auth-sent p {
+  margin: 4px 0 0;
+  color: #4b5f50;
+}
+.auth-sent > svg {
+  color: #147d83;
+}

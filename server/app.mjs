@@ -16,6 +16,7 @@ import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
 import { schedulePdf } from "./pdf.mjs";
 import { createGenerateRouter } from "./generate.mjs";
+import { sendMail, resetEmail, mailConfigured } from "./mail.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 export const app = express();
 app.disable("x-powered-by");
@@ -124,7 +125,7 @@ async function rateLimit(req, key, max = 10, minutes = 15) {
     [digest(key), minutes],
   );
   if (rows[0].attempts > max)
-    fail(429, "Muitas tentativas. Aguarde 15 minutos e tente novamente.");
+    fail(429, `Muitas tentativas. Aguarde ${minutes} minutos e tente novamente.`);
 }
 async function session(req, res, user) {
   const token = randomToken();
@@ -191,6 +192,8 @@ app.post(
           400,
           "Convite inválido ou expirado. Peça um novo link à administração.",
         );
+      if (invite.kind !== "reset" && !body.name)
+        fail(400, "Informe seu nome completo.");
       if (invite.doctor_id) await Q.ensureDoctor(req.db, invite.doctor_id);
       let user;
       if (invite.kind === "reset") {
@@ -236,6 +239,32 @@ app.post(
       return session(req, res, user);
     });
     res.json(result);
+  }),
+);
+// Lets the login screen show "Esqueci minha senha" only when e-mail can really be sent.
+app.get("/api/auth/options", (req, res) => res.json({ forgot: mailConfigured() }));
+app.post(
+  "/api/auth/forgot",
+  route(async (req, res) => {
+    const { email } = V.forgot.parse(req.body);
+    await rateLimit(req, "forgot-ip:" + clientAddress(req), 20);
+    await rateLimit(req, "forgot:" + email, 3, 60);
+    const user = (
+      await req.db.query(
+        "SELECT id,name,email,role,doctor_id FROM escala.users WHERE email=$1 AND active",
+        [email],
+      )
+    ).rows[0];
+    if (user) {
+      const url = await transaction(req.db, async () => {
+        const link = await createReset(req, user, FORGOT_MINUTES, null);
+        await Q.audit(req.db, user, "password_forgot_requested", "Pedido de redefinição de senha por e-mail.", {});
+        return link;
+      });
+      await sendMail({ to: user.email, ...resetEmail({ name: user.name, url, minutes: FORGOT_MINUTES }) });
+    }
+    // Same answer whether or not the address exists, so the form cannot be used to probe accounts.
+    res.json({ ok: true });
   }),
 );
 app.use("/api", async (req, res, next) => {
@@ -901,11 +930,11 @@ app.get(
         "SELECT id,email,name,role,doctor_id,expires_at,accepted_at,revoked_at,kind FROM escala.invites ORDER BY created_at DESC LIMIT 200",
       )
     ).rows;
-    res.json({ users, invites });
+    res.json({ users, invites, mail_configured: mailConfigured() });
   }),
 );
-function inviteUrl(token) {
-  return `${(process.env.APP_URL || "http://localhost:5173").split(",")[0].replace(/\/$/, "")}/ativar?token=${encodeURIComponent(token)}`;
+function inviteUrl(token, kind = "invite") {
+  return `${(process.env.APP_URL || "http://localhost:5173").split(",")[0].replace(/\/$/, "")}/${kind === "reset" ? "redefinir" : "ativar"}?token=${encodeURIComponent(token)}`;
 }
 app.post(
   "/api/team/invite",
@@ -1084,7 +1113,80 @@ app.post(
       );
       return i;
     });
-    res.json({ inviteUrl: inviteUrl(token), expires_at: result.expires_at });
+    res.json({
+      inviteUrl: inviteUrl(token, "reset"),
+      expires_at: result.expires_at,
+    });
+  }),
+);
+// Creates a one-use recovery link; returns what is needed to e-mail it.
+async function createReset(req, u, minutes, actor) {
+  const token = randomToken();
+  await req.db.query(
+    "UPDATE escala.invites SET revoked_at=now() WHERE email=$1 AND kind='reset' AND accepted_at IS NULL AND revoked_at IS NULL",
+    [u.email],
+  );
+  await req.db.query(
+    "INSERT INTO escala.invites(token_hash,email,name,role,doctor_id,created_by,kind,expires_at) VALUES($1,$2,$3,$4,$5,$6,'reset',now()+($7||' minutes')::interval)",
+    [digest(token), u.email, u.name, u.role, u.doctor_id, actor || null, String(minutes)],
+  );
+  return inviteUrl(token, "reset");
+}
+const FORGOT_MINUTES = 60;
+app.post(
+  "/api/team/:id/send-reset",
+  route(async (req, res) => {
+    admin(req);
+    const id = idOf(req);
+    if (!mailConfigured())
+      fail(503, "O envio de e-mail ainda não está configurado.", "MAIL_NOT_CONFIGURED");
+    const u = (
+      await req.db.query("SELECT * FROM escala.users WHERE id=$1 AND active", [id])
+    ).rows[0];
+    if (!u) fail(404, "Conta ativa não encontrada.");
+    if (u.role !== "doctor") owner(req);
+    const url = await transaction(req.db, async () => {
+      const link = await createReset(req, u, FORGOT_MINUTES, req.user.id);
+      await Q.audit(req.db, req.user, "recovery_emailed", `Link de recuperação enviado por e-mail para ${u.name}.`, { user_id: id });
+      return link;
+    });
+    const result = await sendMail({ to: u.email, ...resetEmail({ name: u.name, url, minutes: FORGOT_MINUTES }) });
+    if (!result.sent)
+      fail(502, "Não foi possível enviar o e-mail agora. Tente novamente ou copie o link de recuperação.", "MAIL_FAILED");
+    res.json({ ok: true, email: u.email });
+  }),
+);
+app.post(
+  "/api/team/:id/password",
+  route(async (req, res) => {
+    admin(req);
+    const id = idOf(req);
+    const b = V.z.object({ password: V.password }).strict().parse(req.body);
+    if (id === req.user.id)
+      fail(400, "Para trocar a sua própria senha, use o seu perfil.");
+    const hash = await hashPassword(b.password);
+    await transaction(req.db, async () => {
+      const u = (
+        await req.db.query("SELECT * FROM escala.users WHERE id=$1 AND active", [id])
+      ).rows[0];
+      if (!u) fail(404, "Conta ativa não encontrada.");
+      if (u.role !== "doctor") owner(req);
+      await req.db.query("UPDATE escala.users SET password_hash=$1 WHERE id=$2", [hash, id]);
+      await req.db.query("DELETE FROM escala.sessions WHERE user_id=$1", [id]);
+      await req.db.query(
+        "UPDATE escala.invites SET revoked_at=now() WHERE email=$1 AND kind='reset' AND accepted_at IS NULL AND revoked_at IS NULL",
+        [u.email],
+      );
+      await Q.audit(
+        req.db,
+        req.user,
+        "password_set_by_admin",
+        `${req.user.name} definiu uma nova senha para ${u.name}; sessões anteriores encerradas.`,
+        { user_id: id },
+        u.doctor_id ? [u.doctor_id] : [],
+      );
+    });
+    res.json({ ok: true });
   }),
 );
 app.get(
