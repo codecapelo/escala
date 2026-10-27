@@ -36,6 +36,8 @@ import {
 } from "./utils";
 import type { Doctor, Shift, User, Period, Offer } from "./types";
 import Vacancies from "./Vacancies";
+import Waitlist from "./Waitlist";
+import { useResource } from "./hooks";
 export function ShiftForm({
   shift,
   defaultDate,
@@ -449,6 +451,7 @@ export function ShiftDetail({
             </div>
           </div>
           <Vacancies key={shift.id} shift={shift} user={user} locked={locked} onChanged={onChanged}/>
+          <Waitlist key={`w-${shift.id}`} shift={shift} user={user} locked={locked} onChanged={onChanged}/>
           {locked && (
             <div className="notice">
               <LockKeyhole size={17} />
@@ -527,7 +530,11 @@ export function ShiftDetail({
                     <strong>{a.doctor_name}</strong>
                     <small>
                       {offer ? (
-                        <span className="text-orange">Repasse disponível</span>
+                        <span className="text-orange">
+                          {offer.target_name
+                            ? `Repasse direcionado a ${offer.target_name}`
+                            : "Repasse disponível"}
+                        </span>
                       ) : (
                         doctors.find((d) => d.id === a.doctor_id)?.specialty ||
                         "Equipe médica"
@@ -642,12 +649,14 @@ export function ShiftDetail({
 }
 export function OfferForm({
   assignmentId,
+  shiftId,
   doctors,
   selfId,
   onClose,
   onSaved,
 }: {
   assignmentId: string;
+  shiftId: string | null;
   doctors: Doctor[];
   selfId: string | null;
   onClose: () => void;
@@ -658,9 +667,20 @@ export function OfferForm({
     [scope, setScope] = useState<"all" | "one">("all"),
     [target, setTarget] = useState("");
   // Only doctors who can actually accept (active, with an account) are offered as recipients.
+  const waiting = useResource<{ entries: { doctor_id: string }[] }>(
+    shiftId ? `/shifts/${shiftId}/waitlist` : "/health",
+    0,
+  );
+  const waitingIds = new Set(
+    (shiftId ? waiting.data?.entries : [])?.map((e) => e.doctor_id) || [],
+  );
   const recipients = doctors
     .filter((d) => d.active && d.user_id && d.id !== selfId)
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    .sort(
+      (a, b) =>
+        Number(waitingIds.has(b.id)) - Number(waitingIds.has(a.id)) ||
+        a.name.localeCompare(b.name, "pt-BR"),
+    );
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -726,7 +746,9 @@ export function OfferForm({
                     <option value="">Escolha o médico</option>
                     {recipients.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.name}
+                        {waitingIds.has(d.id)
+                          ? `${d.name} · na lista de espera`
+                          : d.name}
                       </option>
                     ))}
                   </select>

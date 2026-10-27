@@ -53,6 +53,8 @@ export function OffersView({
   onCancel,
   onApprove,
   onReject,
+  onWithdraw,
+  onDecline,
   onSchedule,
 }: {
   offers: Offer[];
@@ -65,6 +67,8 @@ export function OffersView({
   onCancel: (o: Offer) => void;
   onApprove: (o: Offer) => void;
   onReject: (o: Offer) => void;
+  onWithdraw: (o: Offer) => void;
+  onDecline: (o: Offer) => void;
   onSchedule: () => void;
 }) {
   const [tab, setTab] = useState<
@@ -237,6 +241,21 @@ export function OffersView({
                     <strong>{o.from_name}</strong>
                   </span>
                 </div>
+                {(o.status === "open" || o.status === "pending") &&
+                  (o.waiting?.length ? (
+                    <div className="offer-waiting">
+                      <Info size={14} />
+                      <span>
+                        Na lista de espera deste plantão:{" "}
+                        <strong>{o.waiting.map((w) => w.name).join(", ")}</strong>
+                      </span>
+                    </div>
+                  ) : o.i_am_waiting ? (
+                    <div className="offer-waiting">
+                      <Info size={14} />
+                      Você está na lista de espera deste plantão.
+                    </div>
+                  ) : null)}
                 {o.target_doctor_id && (
                   <div className="offer-directed">
                     <Info size={14} />
@@ -287,6 +306,16 @@ export function OffersView({
                           </button>
                         </>
                       )}
+                      {o.requested_doctor_id &&
+                        o.requested_doctor_id === user.doctor_id &&
+                        !locked && (
+                          <button
+                            className="button button-secondary button-sm"
+                            onClick={() => onWithdraw(o)}
+                          >
+                            Retirar meu pedido
+                          </button>
+                        )}
                       {canCancel && (
                         <button
                           className="button button-ghost button-sm"
@@ -300,7 +329,10 @@ export function OffersView({
                 )}
                 {o.status === "open" && (
                   <div className="offer-actions">
-                    {!!user.doctor_id && !own && (
+                    {!!user.doctor_id &&
+                      !own &&
+                      (!o.target_doctor_id ||
+                        o.target_doctor_id === user.doctor_id) && (
                       <button
                         className="button button-primary"
                         disabled={locked}
@@ -310,6 +342,16 @@ export function OffersView({
                         <ArrowUpRight size={16} />
                       </button>
                     )}
+                    {o.target_doctor_id &&
+                      o.target_doctor_id === user.doctor_id && (
+                        <button
+                          className="button button-ghost button-sm"
+                          disabled={locked}
+                          onClick={() => onDecline(o)}
+                        >
+                          Recusar repasse
+                        </button>
+                      )}
                     {own && (
                       <span className="own-offer-label">
                         <Info size={15} />

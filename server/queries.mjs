@@ -103,6 +103,8 @@ export async function shiftsFor(db, month, viewer = null) {
   const { rows } = await db.query(
     `SELECT s.id,s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,
  s.period,s.unit,s.notes,s.source,s.needs_review,s.capacity,
+ (SELECT count(*)::int FROM escala.waitlist w WHERE w.shift_id=s.id AND w.status='waiting' AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)) waitlist_count,
+ (SELECT w.id FROM escala.waitlist w WHERE w.shift_id=s.id AND w.doctor_id=$2::uuid AND w.status='waiting' AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)) my_waitlist_id,
  (SELECT count(*)::int FROM escala.vacancy_requests r WHERE r.shift_id=s.id AND r.status='pending') pending_vacancies,
  CASE WHEN s.capacity IS NULL THEN 0 ELSE GREATEST(0,s.capacity-
  (SELECT count(*)::int FROM escala.assignments a WHERE a.shift_id=s.id AND a.removed_at IS NULL)-
@@ -112,7 +114,7 @@ export async function shiftsFor(db, month, viewer = null) {
  WHERE a.shift_id=s.id AND a.removed_at IS NULL),'[]') assignments FROM escala.shifts s
  WHERE s.date >= ($1||'-01')::date AND s.date < (($1||'-01')::date+interval '1 month') AND s.cancelled_at IS NULL
  ORDER BY s.date,s.start_time,s.unit`,
-    [month],
+    [month, viewer?.doctor_id || null],
   );
   return hideDirectedOffers(rows, viewer);
 }
@@ -138,7 +140,9 @@ export async function doctorsFor(db) {
 export async function offersFor(db, month, user) {
   const { rows } = await db.query(
     `SELECT o.id,o.assignment_id,o.from_doctor_id,fd.name from_name,o.to_doctor_id,td.name to_name,o.status,o.created_at,o.accepted_at,
- o.target_doctor_id,tg.name target_name,o.requested_doctor_id,rd.name requested_name,o.requested_at,o.approved_at,au.name approved_by_name,o.decision_note,
+ o.target_doctor_id,tg.name target_name,
+ COALESCE((SELECT json_agg(json_build_object('doctor_id',w.doctor_id,'name',wd.name) ORDER BY w.created_at) FROM escala.waitlist w JOIN escala.doctors wd ON wd.id=w.doctor_id WHERE w.shift_id=s.id AND w.status='waiting' AND wd.active AND w.doctor_id<>o.from_doctor_id AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)),'[]') waiting,
+ o.requested_doctor_id,rd.name requested_name,o.requested_at,o.approved_at,au.name approved_by_name,o.decision_note,
  s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,s.period,s.unit,o.note
  FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id JOIN escala.shifts s ON s.id=a.shift_id
  JOIN escala.doctors fd ON fd.id=o.from_doctor_id LEFT JOIN escala.doctors td ON td.id=o.to_doctor_id
@@ -148,6 +152,12 @@ export async function offersFor(db, month, user) {
  AND ($2::boolean OR (o.status='open' AND (o.target_doctor_id IS NULL OR o.target_doctor_id=$3)) OR o.from_doctor_id=$3 OR o.to_doctor_id=$3 OR o.requested_doctor_id=$3) ORDER BY o.created_at DESC`,
     [month, user.role !== "doctor", user.doctor_id],
   );
+  // Names on the waiting list are only for the offerer and administrators; others get no names.
+  for (const o of rows) {
+    o.waiting_count = o.waiting.length;
+    o.i_am_waiting = o.waiting.some((w) => w.doctor_id === user.doctor_id);
+    if (user.role === "doctor" && o.from_doctor_id !== user.doctor_id) o.waiting = [];
+  }
   return rows;
 }
 export async function auditFor(db, month, user) {

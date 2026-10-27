@@ -37,6 +37,8 @@ export interface Shift {
   unit: string;
   notes?: string;
   capacity: number | null;
+  waitlist_count?: number;
+  my_waitlist_id?: string | null;
   available_vacancies: number;
   pending_vacancies: number;
   source: string | null;
@@ -55,6 +57,9 @@ export interface Offer {
   accepted_at: string | null;
   target_doctor_id?: string | null;
   target_name?: string | null;
+  waiting?: { doctor_id: string; name: string }[];
+  waiting_count?: number;
+  i_am_waiting?: boolean;
   requested_doctor_id?: string | null;
   requested_name?: string | null;
   requested_at?: string | null;

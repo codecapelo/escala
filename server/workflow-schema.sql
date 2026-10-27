@@ -59,3 +59,12 @@ CREATE TABLE IF NOT EXISTS escala.schedule_templates (
 CREATE UNIQUE INDEX IF NOT EXISTS schedule_templates_name ON escala.schedule_templates(lower(btrim(name)));
 -- Directed offers: only this doctor (plus the offerer and administrators) can see and accept it.
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS target_doctor_id uuid REFERENCES escala.doctors(id);
+-- Waiting list: doctors without a place in a full shift who are available to take over if someone hands it off.
+CREATE TABLE IF NOT EXISTS escala.waitlist (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), shift_id uuid NOT NULL REFERENCES escala.shifts(id),
+ doctor_id uuid NOT NULL REFERENCES escala.doctors(id), user_id uuid NOT NULL REFERENCES escala.users(id),
+ status text NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting','cancelled')),
+ note text NOT NULL DEFAULT '' CHECK(length(note)<=500), created_at timestamptz NOT NULL DEFAULT now(), cancelled_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS waitlist_one_waiting ON escala.waitlist(shift_id,doctor_id) WHERE status='waiting';
+CREATE INDEX IF NOT EXISTS waitlist_shift ON escala.waitlist(shift_id) WHERE status='waiting';

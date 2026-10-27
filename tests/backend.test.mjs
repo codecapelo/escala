@@ -1480,3 +1480,78 @@ test("the UI only offers e-mail recovery when e-mail sending is configured", asy
   assert.deepEqual((await api("/auth/options", { as: null })).body, { forgot: true });
   assert.equal((await api("/team")).body.mail_configured, true);
 });
+
+test("both sides can back out: the requester withdraws a pending request, the chosen doctor declines a directed offer", async () => {
+  const s = await createShift({ doctor_ids: [f.a.id] });
+  const offer = await createOffer(s);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/withdraw`, {}, "c")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/withdraw`, {}, "b")).status, 200);
+  const reopened = await row("SELECT status,requested_doctor_id FROM escala.offers WHERE id=$1", [offer.id]);
+  assert.deepEqual([reopened.status, reopened.requested_doctor_id], ["open", null]);
+  assert.equal((await post(`/offers/${offer.id}/withdraw`, {}, "b")).status, 409, "nothing left to withdraw");
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 200, "the offer is open again for others");
+  assert.equal((await post(`/offers/${offer.id}/cancel`, {}, "a")).status, 200, "the offerer can still cancel a pending one");
+  assert.ok(await row("SELECT 1 x FROM escala.audit WHERE action='offer_request_withdrawn'"));
+  const s2 = await createShift({ date: "2099-11-13", doctor_ids: [f.a.id] });
+  const directed = (await post("/offers", { assignment_id: s2.assignments[0].id, target_doctor_id: f.b.id }, "a")).body.offer;
+  assert.equal((await post(`/offers/${directed.id}/decline`, {}, "c")).status, 403);
+  assert.equal((await post(`/offers/${directed.id}/decline`, {}, "a")).status, 403, "the offerer cancels instead");
+  assert.equal((await post(`/offers/${directed.id}/decline`, {}, "b")).status, 200);
+  assert.equal((await row("SELECT status FROM escala.offers WHERE id=$1", [directed.id])).status, "cancelled");
+  assert.ok(await row("SELECT 1 x FROM escala.audit WHERE action='offer_declined'"));
+  const open = await createOffer(await createShift({ date: "2099-11-14", doctor_ids: [f.a.id] }));
+  assert.equal((await post(`/offers/${open.id}/decline`, {}, "b")).status, 409, "only directed offers can be declined");
+});
+
+test("waiting list: only full shifts, ordered, visible to teammates and admins, ends when the doctor gets a place", async () => {
+  const s = await createShift({ doctor_ids: [f.a.id] });
+  const join = (id, as, body = {}) => post(`/shifts/${id}/waitlist`, body, as);
+  assert.equal((await join(s.id, "b")).body.code, "NO_CAPACITY");
+  await pool.query("UPDATE escala.shifts SET capacity=2 WHERE id=$1", [s.id]);
+  assert.equal((await join(s.id, "b")).body.code, "VACANCY_AVAILABLE", "free vacancies go through the request flow");
+  await pool.query("UPDATE escala.shifts SET capacity=1 WHERE id=$1", [s.id]);
+  assert.equal((await join(s.id, "a")).body.code, "ALREADY_ASSIGNED");
+  assert.equal((await join(s.id, "owner")).status, 403, "needs a linked doctor");
+  const first = await join(s.id, "b");
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal((await join(s.id, "b")).status, 409, "no duplicates");
+  assert.equal((await join(s.id, "c")).status, 201);
+  const mine = (await api(`/dashboard?month=${month}`, { as: "b" })).body.shifts.find((x) => x.id === s.id);
+  assert.equal(mine.waitlist_count, 2);
+  assert.equal(mine.my_waitlist_id, first.body.entry.id);
+  const teammate = (await api(`/shifts/${s.id}/waitlist`, { as: "a" })).body;
+  assert.deepEqual(teammate.entries.map((e) => [e.doctor_name, e.position]), [["Doctor b", 1], ["Doctor c", 2]]);
+  const outsider = (await api(`/shifts/${s.id}/waitlist`, { as: "b" })).body;
+  assert.deepEqual(outsider.entries.map((e) => e.doctor_name), ["Doctor b"], "others only see themselves");
+  assert.equal(outsider.count, 2);
+  // an overlapping commitment keeps a doctor off the list
+  await createShift({ doctor_ids: [f.free.id] });
+  const offer = (await post("/offers", { assignment_id: s.assignments[0].id }, "a")).body.offer;
+  const seenByOfferer = (await api(`/dashboard?month=${month}`, { as: "a" })).body.offers.find((o) => o.id === offer.id);
+  assert.deepEqual(seenByOfferer.waiting.map((w) => w.name), ["Doctor b", "Doctor c"]);
+  const seenByB = (await api(`/dashboard?month=${month}`, { as: "b" })).body.offers.find((o) => o.id === offer.id);
+  assert.deepEqual([seenByB.waiting.length, seenByB.waiting_count, seenByB.i_am_waiting], [0, 2, true]);
+  assert.equal((await post(`/waitlist/${first.body.entry.id}/cancel`, {}, "c")).status, 403);
+  assert.equal((await post(`/waitlist/${first.body.entry.id}/cancel`, {}, "admin")).status, 200);
+  assert.equal((await post(`/waitlist/${first.body.entry.id}/cancel`, {}, "b")).status, 409);
+  assert.equal((await api(`/shifts/${s.id}/waitlist`, { as: "a" })).body.entries.length, 1);
+  // getting a place in the shift ends the waiting
+  await pool.query("UPDATE escala.shifts SET capacity=2 WHERE id=$1", [s.id]);
+  assert.equal((await post(`/shifts/${s.id}/assignments`, { doctor_id: f.c.id })).status, 200);
+  assert.equal((await api(`/shifts/${s.id}/waitlist`, { as: "a" })).body.entries.length, 0);
+  await post("/months/2099-11/lock", { locked: true });
+  assert.equal((await post(`/shifts/${s.id}/waitlist`, {}, "admin")).status, 403, "admin without a linked doctor cannot");
+});
+
+test("waiting list is open during the shift but closed once it ended", async () => {
+  const live = new Date(Date.now() - 3600000);
+  const d = (x) => x.toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" });
+  const t = (x) => x.toLocaleTimeString("en-GB", { timeZone: "America/Fortaleza", hour: "2-digit", minute: "2-digit" });
+  const ongoing = await createShift({ date: d(live), start_time: t(live), end_time: t(new Date(live.getTime() + 4 * 3600000)), doctor_ids: [f.a.id] });
+  await pool.query("UPDATE escala.shifts SET capacity=1 WHERE id=$1", [ongoing.id]);
+  assert.equal((await post(`/shifts/${ongoing.id}/waitlist`, {}, "b")).status, 201, "a shift in progress accepts volunteers");
+  const ended = await createShift({ date: "2020-01-01", doctor_ids: [f.a.id] });
+  await pool.query("UPDATE escala.shifts SET capacity=1 WHERE id=$1", [ended.id]);
+  assert.equal((await post(`/shifts/${ended.id}/waitlist`, {}, "b")).body.code, "SHIFT_ENDED");
+});

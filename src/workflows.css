@@ -143,3 +143,45 @@
   padding: 6px 10px;
   margin: 6px 0;
 }
+.waitlist-panel {
+  margin: 14px 0;
+  padding: 16px;
+  background: #f4f1fa;
+  border: 1px solid #d8d0ea;
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+}
+.waitlist-panel p {
+  margin: 0;
+  line-height: 1.5;
+  color: #4b4660;
+}
+.waitlist-entries {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.waitlist-entries li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e3ddf0;
+  border-radius: 10px;
+  padding: 6px 12px;
+}
+.offer-waiting {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: #4b4660;
+  background: #f4f1fa;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin: 6px 0;
+}

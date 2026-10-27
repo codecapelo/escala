@@ -10,6 +10,7 @@ interface VacancyRequest {
   user_id: string;
   doctor_name: string;
   status: "pending" | "approved" | "rejected" | "cancelled";
+  created_at: string;
   decision_note: string | null;
 }
 export function StaffingBadge({ shift }: { shift: Shift }) {
@@ -52,6 +53,11 @@ export default function Vacancies({
   const admin = user.role !== "doctor",
     requests = data?.requests || [],
     own = requests.find((r) => r.user_id === user.id && r.status === "pending");
+  // Pending requests form a queue in the order they were made.
+  const queue = requests
+    .filter((r) => r.status === "pending")
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const position = (id: string) => queue.findIndex((r) => r.id === id) + 1;
   const assigned = shift.assignments.some(
     (a) => a.doctor_id === user.doctor_id,
   );
@@ -96,7 +102,9 @@ export default function Vacancies({
       )}
       {own ? (
         <div className="vacancy-request">
-          <strong>Sua solicitação está pendente de autorização.</strong>
+          <strong>
+            Você está na fila: {position(own.id)}º de {queue.length}.
+          </strong>
           <p>
             A vaga está reservada. Você entrará na escala após aprovação da
             administração.
@@ -140,33 +148,36 @@ export default function Vacancies({
             houver vaga.
           </p>
         )}
+      {admin && queue.length > 0 && (
+        <p className="eyebrow">FILA DE SOLICITAÇÕES (POR ORDEM DE PEDIDO)</p>
+      )}
       {admin &&
-        requests
-          .filter((r) => r.status === "pending")
-          .map((r) => (
-            <div className="vacancy-request" key={r.id}>
-              <strong>{r.doctor_name}</strong>
-              <p>Solicitou para assumir uma vaga. Aguardando autorização.</p>
-              {!locked && (
-                <div className="button-row">
-                  <button
-                    className="button button-primary button-sm"
-                    disabled={busy || !upcoming}
-                    onClick={() => act(`/vacancy-requests/${r.id}/approve`)}
-                  >
-                    Autorizar
-                  </button>
-                  <button
-                    className="button button-secondary button-sm"
-                    disabled={busy}
-                    onClick={() => act(`/vacancy-requests/${r.id}/reject`)}
-                  >
-                    Recusar
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+        queue.map((r) => (
+          <div className="vacancy-request" key={r.id}>
+            <strong>
+              {position(r.id)}º · {r.doctor_name}
+            </strong>
+            <p>Solicitou para assumir uma vaga. Aguardando autorização.</p>
+            {!locked && (
+              <div className="button-row">
+                <button
+                  className="button button-primary button-sm"
+                  disabled={busy || !upcoming}
+                  onClick={() => act(`/vacancy-requests/${r.id}/approve`)}
+                >
+                  Autorizar
+                </button>
+                <button
+                  className="button button-secondary button-sm"
+                  disabled={busy}
+                  onClick={() => act(`/vacancy-requests/${r.id}/reject`)}
+                >
+                  Recusar
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
       {(actionError || error) && <ErrorBox>{actionError || error}</ErrorBox>}
     </section>
   );

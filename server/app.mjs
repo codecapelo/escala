@@ -16,6 +16,7 @@ import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
 import { schedulePdf } from "./pdf.mjs";
 import { createGenerateRouter } from "./generate.mjs";
+import { waitlistRouter } from "./waitlist.mjs";
 import { sendMail, resetEmail, mailConfigured } from "./mail.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 import { vacancyRouter, ensureCapacity, cancelVacancyRequests, staffing } from './vacancies.mjs';
@@ -303,6 +304,7 @@ app.use('/api', (req,res,next)=>{
  next();
 });
 app.use('/api',vacancyRouter({admin,monthOf}));
+app.use('/api',waitlistRouter({admin}));
 app.get(
   "/api/auth/me",
   route(async (req, res) =>
@@ -839,6 +841,79 @@ app.post(
         `Oferta do plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} cancelada.`,
         { offer_id: id, shift_id: s.id },
         [a.doctor_id],
+        s.date.slice(0, 7),
+      );
+    });
+    res.json({ ok: true });
+  }),
+);
+// The doctor who asked to take over withdraws the request; the offer goes back to open.
+app.post(
+  "/api/offers/:id/withdraw",
+  route(async (req, res) => {
+    const id = idOf(req);
+    await transaction(req.db, async () => {
+      const o = (
+        await req.db.query(
+          "SELECT * FROM escala.offers WHERE id=$1 AND status='pending' FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!o) fail(409, "Este pedido não está mais aguardando autorização.");
+      if (o.requested_by !== req.user.id && req.user.role === "doctor")
+        fail(403, "Só quem fez o pedido pode retirá-lo.");
+      const a = await Q.getAssignment(req.db, o.assignment_id);
+      const s = await Q.getShift(req.db, a.shift_id);
+      await Q.ensureUnlocked(req.db, s.date);
+      const who = (
+        await req.db.query("SELECT name FROM escala.doctors WHERE id=$1", [o.requested_doctor_id])
+      ).rows[0]?.name || "O médico";
+      await req.db.query(
+        "UPDATE escala.offers SET status='open',requested_doctor_id=NULL,requested_by=NULL,requested_at=NULL WHERE id=$1",
+        [id],
+      );
+      await Q.audit(
+        req.db,
+        req.user,
+        "offer_request_withdrawn",
+        `${who} retirou o pedido para assumir o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}. O repasse voltou a ficar disponível.`,
+        { offer_id: id, shift_id: s.id, requested_doctor_id: o.requested_doctor_id },
+        [a.doctor_id, o.requested_doctor_id],
+        s.date.slice(0, 7),
+      );
+    });
+    res.json({ ok: true });
+  }),
+);
+// The doctor an offer was directed to declines it; the offer is closed.
+app.post(
+  "/api/offers/:id/decline",
+  route(async (req, res) => {
+    const id = idOf(req);
+    await transaction(req.db, async () => {
+      const o = (
+        await req.db.query(
+          "SELECT * FROM escala.offers WHERE id=$1 AND status='open' AND target_doctor_id IS NOT NULL FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!o) fail(409, "Este repasse direcionado não está mais aberto.");
+      if (o.target_doctor_id !== req.user.doctor_id)
+        fail(403, "Só o médico escolhido pode recusar este repasse.");
+      const a = await Q.getAssignment(req.db, o.assignment_id);
+      const s = await Q.getShift(req.db, a.shift_id);
+      await Q.ensureUnlocked(req.db, s.date);
+      await req.db.query(
+        "UPDATE escala.offers SET status='cancelled',cancelled_at=now(),decision_note=$2 WHERE id=$1",
+        [id, "Recusado pelo médico escolhido."],
+      );
+      await Q.audit(
+        req.db,
+        req.user,
+        "offer_declined",
+        `${req.user.name} recusou o repasse do plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}.`,
+        { offer_id: id, shift_id: s.id, target_doctor_id: o.target_doctor_id },
+        [a.doctor_id, o.target_doctor_id],
         s.date.slice(0, 7),
       );
     });

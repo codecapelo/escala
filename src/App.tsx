@@ -83,6 +83,8 @@ export default function App() {
     [cancelOffer, setCancelOffer] = useState<Offer | null>(null),
     [approveOffer, setApproveOffer] = useState<Offer | null>(null),
     [rejectOffer, setRejectOffer] = useState<Offer | null>(null),
+    [withdrawOffer, setWithdrawOffer] = useState<Offer | null>(null),
+    [declineOffer, setDeclineOffer] = useState<Offer | null>(null),
     [day, setDay] = useState<string | null>(null),
     [profile, setProfile] = useState(false),
     [lock, setLock] = useState<boolean | null>(null),
@@ -431,6 +433,8 @@ export default function App() {
                     onCancel={setCancelOffer}
                     onApprove={setApproveOffer}
                     onReject={setRejectOffer}
+                    onWithdraw={setWithdrawOffer}
+                    onDecline={setDeclineOffer}
                     onSchedule={() => navigate("schedule")}
                   />
                 )}{" "}
@@ -575,6 +579,11 @@ export default function App() {
         {offerAssignment && (
           <OfferForm
             assignmentId={offerAssignment}
+            shiftId={
+              data?.shifts.find((s) =>
+                s.assignments.some((a) => a.id === offerAssignment),
+              )?.id || null
+            }
             doctors={data?.doctors || []}
             selfId={user.doctor_id}
             onClose={() => setOfferAssignment(null)}
@@ -609,6 +618,33 @@ export default function App() {
               await post(`/offers/${cancelOffer.id}/cancel`);
               refresh();
               notify("Repasse cancelado.");
+            }}
+          />
+        )}
+        {withdrawOffer && (
+          <Confirm
+            title="Retirar seu pedido?"
+            description={`Você deixa de pedir o plantão de ${withdrawOffer.from_name} em ${dayLabel(withdrawOffer.date)} às ${withdrawOffer.start_time}. O repasse volta a ficar disponível e a responsabilidade continua com ${withdrawOffer.from_name}.`}
+            onClose={() => setWithdrawOffer(null)}
+            confirmLabel="Retirar pedido"
+            onConfirm={async () => {
+              await post(`/offers/${withdrawOffer.id}/withdraw`);
+              refresh();
+              notify("Pedido retirado. O repasse voltou a ficar disponível.");
+            }}
+          />
+        )}
+        {declineOffer && (
+          <Confirm
+            title="Recusar este repasse?"
+            description={`${declineOffer.from_name} ofereceu a você o plantão de ${dayLabel(declineOffer.date)} às ${declineOffer.start_time}. Ao recusar, o repasse é encerrado e o plantão continua com ${declineOffer.from_name}.`}
+            onClose={() => setDeclineOffer(null)}
+            danger
+            confirmLabel="Recusar repasse"
+            onConfirm={async () => {
+              await post(`/offers/${declineOffer.id}/decline`);
+              refresh();
+              notify("Repasse recusado. Quem ofereceu será avisado no histórico.");
             }}
           />
         )}
