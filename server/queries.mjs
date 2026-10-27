@@ -82,7 +82,24 @@ export function ensureFuture(s) {
       "PAST_SHIFT",
     );
 }
-export async function shiftsFor(db, month) {
+// Offers directed at one doctor stay invisible to everybody else (admins excepted).
+function hideDirectedOffers(rows, viewer) {
+  for (const s of rows)
+    for (const a of s.assignments) {
+      const target = a.offer_target;
+      delete a.offer_target;
+      if (
+        target &&
+        viewer &&
+        viewer.role === "doctor" &&
+        viewer.doctor_id !== target &&
+        viewer.doctor_id !== a.doctor_id
+      )
+        a.offer_id = null;
+    }
+  return rows;
+}
+export async function shiftsFor(db, month, viewer = null) {
   const { rows } = await db.query(
     `SELECT s.id,s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,
  s.period,s.unit,s.notes,s.source,s.needs_review,s.capacity,
@@ -90,14 +107,14 @@ export async function shiftsFor(db, month) {
  CASE WHEN s.capacity IS NULL THEN 0 ELSE GREATEST(0,s.capacity-
  (SELECT count(*)::int FROM escala.assignments a WHERE a.shift_id=s.id AND a.removed_at IS NULL)-
  (SELECT count(*)::int FROM escala.vacancy_requests r WHERE r.shift_id=s.id AND r.status='pending')) END available_vacancies,
- COALESCE((SELECT json_agg(json_build_object('id',a.id,'doctor_id',d.id,'doctor_name',d.name,'doctor_color',d.color,'offer_id',o.id) ORDER BY d.name)
+ COALESCE((SELECT json_agg(json_build_object('id',a.id,'doctor_id',d.id,'doctor_name',d.name,'doctor_color',d.color,'offer_id',o.id,'offer_target',o.target_doctor_id) ORDER BY d.name)
  FROM escala.assignments a JOIN escala.doctors d ON d.id=a.doctor_id LEFT JOIN escala.offers o ON o.assignment_id=a.id AND o.status IN ('open','pending')
  WHERE a.shift_id=s.id AND a.removed_at IS NULL),'[]') assignments FROM escala.shifts s
  WHERE s.date >= ($1||'-01')::date AND s.date < (($1||'-01')::date+interval '1 month') AND s.cancelled_at IS NULL
  ORDER BY s.date,s.start_time,s.unit`,
     [month],
   );
-  return rows;
+  return hideDirectedOffers(rows, viewer);
 }
 // Future, non-cancelled shifts of one doctor, used to block inactivation and to link to each shift.
 export async function upcomingFor(db, doctorId) {
@@ -121,14 +138,14 @@ export async function doctorsFor(db) {
 export async function offersFor(db, month, user) {
   const { rows } = await db.query(
     `SELECT o.id,o.assignment_id,o.from_doctor_id,fd.name from_name,o.to_doctor_id,td.name to_name,o.status,o.created_at,o.accepted_at,
- o.requested_doctor_id,rd.name requested_name,o.requested_at,o.approved_at,au.name approved_by_name,o.decision_note,
+ o.target_doctor_id,tg.name target_name,o.requested_doctor_id,rd.name requested_name,o.requested_at,o.approved_at,au.name approved_by_name,o.decision_note,
  s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,s.period,s.unit,o.note
  FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id JOIN escala.shifts s ON s.id=a.shift_id
  JOIN escala.doctors fd ON fd.id=o.from_doctor_id LEFT JOIN escala.doctors td ON td.id=o.to_doctor_id
- LEFT JOIN escala.doctors rd ON rd.id=o.requested_doctor_id LEFT JOIN escala.users au ON au.id=o.approved_by
+ LEFT JOIN escala.doctors tg ON tg.id=o.target_doctor_id LEFT JOIN escala.doctors rd ON rd.id=o.requested_doctor_id LEFT JOIN escala.users au ON au.id=o.approved_by
  WHERE s.date>=($1||'-01')::date AND s.date<(($1||'-01')::date+interval '1 month')
- AND (o.status NOT IN ('open','pending') OR (s.cancelled_at IS NULL AND a.removed_at IS NULL AND (s.date+s.start_time) AT TIME ZONE 'America/Fortaleza' > now()))
- AND ($2::boolean OR o.status='open' OR o.from_doctor_id=$3 OR o.to_doctor_id=$3 OR o.requested_doctor_id=$3) ORDER BY o.created_at DESC`,
+ AND (o.status NOT IN ('open','pending') OR (s.cancelled_at IS NULL AND a.removed_at IS NULL))
+ AND ($2::boolean OR (o.status='open' AND (o.target_doctor_id IS NULL OR o.target_doctor_id=$3)) OR o.from_doctor_id=$3 OR o.to_doctor_id=$3 OR o.requested_doctor_id=$3) ORDER BY o.created_at DESC`,
     [month, user.role !== "doctor", user.doctor_id],
   );
   return rows;

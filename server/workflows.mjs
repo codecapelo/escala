@@ -148,7 +148,7 @@ export function createWorkflowRouters({session,rateLimit,clientAddress,admin,mon
   const month=monthOf(req);const status=V.z.enum(['pending','all']).parse(req.query.status||'all');
   const {rows}=await req.db.query(`SELECT c.*,d.name doctor_name,u.name decided_by_name FROM escala.corrections c JOIN escala.doctors d ON d.id=c.doctor_id LEFT JOIN escala.users u ON u.id=c.decided_by
    WHERE ($1::boolean OR c.user_id=$2) AND ($3='all' OR c.status=$3)
-   AND (c.type='profile' OR left(c.proposed->>'date',7)=$4 OR left(c.before->>'date',7)=$4) ORDER BY c.created_at DESC,c.id`,[req.user.role!=='doctor',req.user.id,status,month]);
+   AND (c.type='profile' OR ($1::boolean AND c.status='pending') OR left(c.proposed->>'date',7)=$4 OR left(c.before->>'date',7)=$4) ORDER BY c.created_at DESC,c.id`,[req.user.role!=='doctor',req.user.id,status,month]);
   res.json({corrections:rows});
  }));
  workflowRouter.post('/corrections',route(async(req,res)=>{

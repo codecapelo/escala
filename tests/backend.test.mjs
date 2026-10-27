@@ -1031,23 +1031,45 @@ test("stale origin ownership is checked at acceptance even if changed outside ap
   );
 });
 
-test("past offers cannot be created or accepted, and past stale offers disappear from listings", async () => {
+test("offers work for shifts that already started or ended, up to administrator approval; closed months still block", async () => {
   const s = await createShift({ date: "2020-01-01", doctor_ids: [f.a.id] });
-  const created = await post(
-    "/offers",
-    { assignment_id: s.assignments[0].id },
-    "a",
-  );
-  assert.equal(created.status, 409);
-  assert.equal(created.body.code, "PAST_SHIFT");
-  const o = await row(
-    "INSERT INTO escala.offers(assignment_id,from_doctor_id,created_by) VALUES($1,$2,$3) RETURNING id",
-    [s.assignments[0].id, f.a.id, f.a.user.id],
-  );
-  const accepted = await post(`/offers/${o.id}/accept`, {}, "b");
-  assert.equal(accepted.status, 409);
-  assert.equal(accepted.body.code, "PAST_SHIFT");
-  assert.equal((await api("/dashboard?month=2020-01")).body.offers.length, 0);
+  const created = await post("/offers", { assignment_id: s.assignments[0].id }, "a");
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const offerId = created.body.offer.id;
+  assert.equal((await api("/dashboard?month=2020-01", { as: "b" })).body.offers.length, 1, "past open offers stay listed");
+  assert.equal((await post(`/offers/${offerId}/accept`, {}, "b")).status, 200);
+  assert.equal((await post(`/offers/${offerId}/approve`, {}, "admin")).status, 200);
+  assert.equal((await row("SELECT doctor_id FROM escala.assignments WHERE id=$1", [s.assignments[0].id])).doctor_id, f.b.id);
+  await post("/months/2020-01/lock", { locked: true });
+  assert.equal((await post("/offers", { assignment_id: s.assignments[0].id }, "b")).body.code, "MONTH_LOCKED");
+});
+
+test("an offer directed at one doctor is invisible to the others, only that doctor can take it, administrators see it", async () => {
+  const s = await createShift({ doctor_ids: [f.a.id] });
+  assert.equal((await post("/offers", { assignment_id: s.assignments[0].id, target_doctor_id: f.a.id }, "a")).status, 400, "not to yourself");
+  assert.equal((await post("/offers", { assignment_id: s.assignments[0].id, target_doctor_id: f.inactive.id }, "a")).status, 400, "inactive doctor");
+  assert.equal((await post("/offers", { assignment_id: s.assignments[0].id, target_doctor_id: f.free.id }, "a")).body.code, "TARGET_WITHOUT_ACCOUNT");
+  const made = await post("/offers", { assignment_id: s.assignments[0].id, target_doctor_id: f.b.id }, "a");
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.offer.id;
+  const view = async (as) => (await api(`/dashboard?month=${month}`, { as })).body;
+  const mine = await view("b");
+  assert.equal(mine.offers.length, 1);
+  assert.equal(mine.offers[0].target_name, "Doctor b");
+  assert.ok(mine.shifts[0].assignments[0].offer_id, "the target sees the repasse tag");
+  assert.equal((await view("a")).offers.length, 1);
+  assert.equal((await view("owner")).offers.length, 1);
+  const other = await view("c");
+  assert.equal(other.offers.length, 0, "others do not see the offer");
+  assert.equal(other.shifts[0].assignments[0].offer_id, null, "nor the repasse tag in the calendar");
+  assert.ok(!JSON.stringify(other).includes("offer_target"));
+  assert.equal((await api(`/shifts?month=${month}`, { as: "c" })).body.shifts[0].assignments[0].offer_id, null);
+  assert.equal((await post(`/offers/${id}/accept`, {}, "c")).status, 403);
+  assert.equal((await post(`/offers/${id}/accept`, {}, "b")).status, 200);
+  assert.equal((await post(`/offers/${id}/approve`, {}, "admin")).status, 200);
+  assert.ok(await row("SELECT 1 x FROM escala.audit WHERE action='offer_created' AND description LIKE '%ofereceu a Doctor b%'"));
+  const audit = await api(`/audit?month=${month}`, { as: "c" });
+  assert.ok(!audit.body.audit.some((e) => e.action === "offer_created"), "unrelated doctors do not see the directed audit entry");
 });
 
 test("inactive doctors lose existing sessions and cannot login or receive assignments", async () => {

@@ -53,6 +53,8 @@ export interface Offer {
   status: "open" | "pending" | "accepted" | "cancelled";
   created_at: string;
   accepted_at: string | null;
+  target_doctor_id?: string | null;
+  target_name?: string | null;
   requested_doctor_id?: string | null;
   requested_name?: string | null;
   requested_at?: string | null;

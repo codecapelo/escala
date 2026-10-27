@@ -95,3 +95,51 @@
 .vacancy-request { margin-top:14px; padding:14px; border:1px solid #ccd9c4; border-radius:10px; background:#fff; }
 .vacancy-panel .button-row { flex-wrap:wrap; }
 @media(max-width:600px){.vacancy-panel{padding:16px}.vacancy-heading{align-items:flex-start;flex-direction:column}.vacancy-panel>.button{width:100%}}
+.offer-scope {
+  border: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.offer-scope legend {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.offer-scope label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #d9e0d2;
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: #fffefa;
+}
+.offer-scope label.active {
+  border-color: #147d83;
+  background: #eef7f6;
+}
+.offer-scope span {
+  display: grid;
+  gap: 4px;
+}
+.offer-scope small {
+  color: #6b7d6e;
+}
+.offer-scope select {
+  margin-top: 6px;
+}
+.offer-directed {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #147d83;
+  background: #eef7f6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin: 6px 0;
+}

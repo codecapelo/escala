@@ -373,7 +373,7 @@ app.get(
   "/api/dashboard",
   route(async (req, res) => {
     const month = monthOf(req);
-    const shifts = await Q.shiftsFor(req.db, month);
+    const shifts = await Q.shiftsFor(req.db, month, req.user);
     const doctors = await Q.doctorsFor(req.db);
     const offers = await Q.offersFor(req.db, month, req.user);
     const visible =
@@ -413,7 +413,7 @@ app.get(
   route(async (req, res) => {
     const m = monthOf(req);
     res.json({
-      shifts: await Q.shiftsFor(req.db, m),
+      shifts: await Q.shiftsFor(req.db, m, req.user),
       locked: await Q.lockedFor(req.db, m),
     });
   }),
@@ -631,10 +631,11 @@ app.delete(
 app.post(
   "/api/offers",
   route(async (req, res) => {
-    const { assignment_id, note } = V.z
+    const { assignment_id, note, target_doctor_id } = V.z
       .object({
         assignment_id: V.uuid,
         note: V.z.string().trim().max(1000).default(""),
+        target_doctor_id: V.uuid.nullable().optional(),
       })
       .parse(req.body);
     const offer = await transaction(req.db, async () => {
@@ -643,20 +644,33 @@ app.post(
         fail(403, "Você só pode disponibilizar seus próprios plantões.");
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
-      Q.ensureFuture(s);
+      let target = null;
+      if (target_doctor_id) {
+        if (target_doctor_id === a.doctor_id)
+          fail(400, "Escolha outro médico para receber o repasse.");
+        target = await Q.ensureDoctor(req.db, target_doctor_id);
+        const account = (
+          await req.db.query(
+            "SELECT 1 FROM escala.users WHERE doctor_id=$1 AND active AND approval_status='approved'",
+            [target_doctor_id],
+          )
+        ).rows[0];
+        if (!account)
+          fail(409, "Esse médico ainda não tem conta para aceitar o repasse.", "TARGET_WITHOUT_ACCOUNT");
+      }
       const offer = (
         await req.db.query(
-          "INSERT INTO escala.offers(assignment_id,from_doctor_id,note,created_by) VALUES($1,$2,$3,$4) RETURNING *",
-          [a.id, a.doctor_id, note, req.user.id],
+          "INSERT INTO escala.offers(assignment_id,from_doctor_id,note,created_by,target_doctor_id) VALUES($1,$2,$3,$4,$5) RETURNING *",
+          [a.id, a.doctor_id, note, req.user.id, target_doctor_id || null],
         )
       ).rows[0];
       await Q.audit(
         req.db,
         req.user,
         "offer_created",
-        `${a.doctor_name} disponibilizou o plantão de ${s.date.split("-").reverse().join("/")} ${s.start_time}.`,
-        { offer_id: offer.id, shift_id: s.id, from_doctor_id: a.doctor_id },
-        [a.doctor_id],
+        `${a.doctor_name} ${target ? `ofereceu a ${target.name}` : "disponibilizou"} o plantão de ${s.date.split("-").reverse().join("/")} ${s.start_time}.`,
+        { offer_id: offer.id, shift_id: s.id, from_doctor_id: a.doctor_id, target_doctor_id: target?.id || null },
+        target ? [a.doctor_id, target.id] : [a.doctor_id],
         s.date.slice(0, 7),
       );
       return offer;
@@ -690,9 +704,10 @@ app.post(
         );
       if (target === a.doctor_id)
         fail(400, "Você já é responsável por este plantão.");
+      if (o.target_doctor_id && o.target_doctor_id !== target)
+        fail(403, "Este repasse foi direcionado a outro médico.");
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
-      Q.ensureFuture(s);
       const d = await Q.ensureDoctor(req.db, target);
       await Q.ensureNoOverlap(req.db, target, s);
       await req.db.query(
@@ -733,7 +748,6 @@ app.post(
         fail(409, "O responsável por este plantão já mudou. Recuse o pedido.");
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
-      Q.ensureFuture(s);
       const d = await Q.ensureDoctor(req.db, o.requested_doctor_id);
       await Q.ensureNoOverlap(req.db, o.requested_doctor_id, s);
       await req.db.query(

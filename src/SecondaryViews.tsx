@@ -39,7 +39,6 @@ import {
   hours,
   monthLabel,
   roleLabels,
-  isUpcoming,
   crmLabel,
 } from "./utils";
 import type { Offer, Doctor, User, Report, Audit, ReportRow } from "./types";
@@ -238,6 +237,14 @@ export function OffersView({
                     <strong>{o.from_name}</strong>
                   </span>
                 </div>
+                {o.target_doctor_id && (
+                  <div className="offer-directed">
+                    <Info size={14} />
+                    {o.target_doctor_id === user.doctor_id
+                      ? "Direcionado a você"
+                      : `Direcionado a ${o.target_name}`}
+                  </div>
+                )}
                 {o.status === "accepted" && o.to_name && (
                   <div className="offer-accepted">
                     <Check size={15} />
@@ -296,14 +303,10 @@ export function OffersView({
                     {!!user.doctor_id && !own && (
                       <button
                         className="button button-primary"
-                        disabled={locked || !isUpcoming(o.date, o.start_time)}
+                        disabled={locked}
                         onClick={() => onAccept(o)}
                       >
-                        {locked
-                          ? "Mês fechado"
-                          : !isUpcoming(o.date, o.start_time)
-                            ? "Plantão encerrado"
-                            : "Assumir plantão"}
+                        {locked ? "Mês fechado" : "Pedir para assumir"}
                         <ArrowUpRight size={16} />
                       </button>
                     )}

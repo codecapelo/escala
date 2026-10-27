@@ -57,3 +57,5 @@ CREATE TABLE IF NOT EXISTS escala.schedule_templates (
  created_by uuid REFERENCES escala.users(id), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS schedule_templates_name ON escala.schedule_templates(lower(btrim(name)));
+-- Directed offers: only this doctor (plus the offerer and administrators) can see and accept it.
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS target_doctor_id uuid REFERENCES escala.doctors(id);

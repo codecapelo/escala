@@ -575,10 +575,16 @@ export default function App() {
         {offerAssignment && (
           <OfferForm
             assignmentId={offerAssignment}
+            doctors={data?.doctors || []}
+            selfId={user.doctor_id}
             onClose={() => setOfferAssignment(null)}
-            onSaved={() => {
+            onSaved={(targetName) => {
               refresh();
-              notify("Repasse disponível para a equipe.");
+              notify(
+                targetName
+                  ? `Repasse enviado a ${targetName}. Só essa pessoa e a administração o veem.`
+                  : "Repasse disponível para a equipe.",
+              );
             }}
           />
         )}

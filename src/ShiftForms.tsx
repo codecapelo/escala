@@ -32,7 +32,6 @@ import {
   toISO,
   hours,
   formatNumber,
-  isUpcoming,
   canEditSchedule,
 } from "./utils";
 import type { Doctor, Shift, User, Period, Offer } from "./types";
@@ -537,8 +536,7 @@ export function ShiftDetail({
                   </div>
                   {!locked &&
                     user.doctor_id === a.doctor_id &&
-                    !offer &&
-                    isUpcoming(shift.date, shift.start_time) && (
+                    !offer && (
                       <button
                         className="button button-secondary button-sm"
                         onClick={() => onOffer(a.id)}
@@ -644,15 +642,25 @@ export function ShiftDetail({
 }
 export function OfferForm({
   assignmentId,
+  doctors,
+  selfId,
   onClose,
   onSaved,
 }: {
   assignmentId: string;
+  doctors: Doctor[];
+  selfId: string | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (targetName: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [scope, setScope] = useState<"all" | "one">("all"),
+    [target, setTarget] = useState("");
+  // Only doctors who can actually accept (active, with an account) are offered as recipients.
+  const recipients = doctors
+    .filter((d) => d.active && d.user_id && d.id !== selfId)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -660,8 +668,13 @@ export function OfferForm({
       await post("/offers", {
         assignment_id: assignmentId,
         note: new FormData(e.currentTarget).get("note"),
+        ...(scope === "one" ? { target_doctor_id: target } : {}),
       });
-      onSaved();
+      onSaved(
+        scope === "one"
+          ? recipients.find((d) => d.id === target)?.name || null
+          : null,
+      );
       onClose();
     } catch (e) {
       setError(message(e));
@@ -671,19 +684,65 @@ export function OfferForm({
   return (
     <Modal
       title="Disponibilizar repasse"
-      subtitle="Abra este plantão para a equipe."
+      subtitle="Abra este plantão para a equipe ou para um médico específico."
       onClose={onClose}
     >
       <form onSubmit={submit}>
         <div className="modal-body">
+          <fieldset className="offer-scope">
+            <legend>Quem pode assumir?</legend>
+            <label className={scope === "all" ? "active" : ""}>
+              <input
+                type="radio"
+                name="scope"
+                checked={scope === "all"}
+                onChange={() => setScope("all")}
+              />
+              <span>
+                <strong>Toda a equipe</strong>
+                <small>O repasse aparece para todos os médicos.</small>
+              </span>
+            </label>
+            <label className={scope === "one" ? "active" : ""}>
+              <input
+                type="radio"
+                name="scope"
+                checked={scope === "one"}
+                onChange={() => setScope("one")}
+              />
+              <span>
+                <strong>Um médico específico</strong>
+                <small>
+                  Só ele (e a administração) vê e pode aceitar. Os demais não
+                  veem o repasse.
+                </small>
+                {scope === "one" && (
+                  <select
+                    required
+                    aria-label="Médico que receberá o repasse"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                  >
+                    <option value="">Escolha o médico</option>
+                    {recipients.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>
+            </label>
+          </fieldset>
           <div className="notice">
             <Info size={18} />
             <span>
               O plantão continua sob sua responsabilidade até outro médico
-              assumir o repasse.
+              assumir e um administrador autorizar. Vale também para plantões
+              que já começaram.
             </span>
           </div>
-          <Field label="Mensagem para a equipe (opcional)">
+          <Field label="Mensagem (opcional)">
             <textarea
               rows={4}
               name="note"
