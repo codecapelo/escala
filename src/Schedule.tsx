@@ -748,8 +748,7 @@ function CalendarGrid({
                           <PeriodIcon period={s.period} size={11} />
                           {s.start_time}
                           <span>–{s.end_time}</span>
-                          <StaffingBadge shift={s}/>
-                {s.assignments.some((a) => a.offer_id) && (
+                          {s.assignments.some((a) => a.offer_id) && (
                             <ArrowUpRight size={10} />
                           )}
                         </span>
