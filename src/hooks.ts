@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api, message } from "./api";
 export function useResource<T>(path: string, version = 0) {
   const [data, setData] = useState<T | null>(null),
@@ -23,5 +23,6 @@ export function useResource<T>(path: string, version = 0) {
       live = false;
     };
   }, [path, version, retry]);
-  return { data, loading, error, reload: () => setRetry((v) => v + 1) };
+  const reload = useCallback(() => setRetry((v) => v + 1), []);
+  return { data, loading, error, reload };
 }

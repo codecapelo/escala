@@ -84,3 +84,14 @@
 .auth-sent > svg {
   color: #147d83;
 }
+
+.vacancy-panel { margin: 20px 0; padding: 20px; background: #f0f5e9; border: 1px solid #cbd9bd; border-radius: 14px; }
+.vacancy-panel h3 { margin: 12px 0 8px; font-size: 1.2rem; }
+.vacancy-panel p { margin: 8px 0 14px; line-height: 1.55; }
+.vacancy-heading { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+.staffing-badge { display:inline-flex; font-size:12px; line-height:1.5; font-weight:700; border-radius:8px; padding:3px 8px; max-width:100%; white-space:normal; }
+.staffing-open { color:#78500d; background:#fff0cf; }
+.staffing-full { color:#236042; background:#e4f0e7; }
+.vacancy-request { margin-top:14px; padding:14px; border:1px solid #ccd9c4; border-radius:10px; background:#fff; }
+.vacancy-panel .button-row { flex-wrap:wrap; }
+@media(max-width:600px){.vacancy-panel{padding:16px}.vacancy-heading{align-items:flex-start;flex-direction:column}.vacancy-panel>.button{width:100%}}

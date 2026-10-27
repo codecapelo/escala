@@ -41,6 +41,7 @@ before(async () => {
     ),
   );
   await pool.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL("../server/vacancy-schema.sql", import.meta.url), "utf8"));
   hash = await hashPassword(password);
   ({ handler } = await import("../netlify/functions/api.mjs"));
 });
@@ -295,11 +296,14 @@ test("actual handler uses platform client IP buckets only when NETLIFY is enable
   }
 });
 
-test("actual handler returns the schedule PDF base64-encoded and byte-exact", async () => {
-  const r = await invoke("/api/schedule/export", { authenticated: true, query: { month: "2099-11" } });
-  assert.equal(r.statusCode, 200);
-  assert.equal(r.headers["content-type"], "application/pdf");
-  assert.equal(r.isBase64Encoded, true);
-  assert.equal(Buffer.from(r.body, "base64").subarray(0, 5).toString("latin1"), "%PDF-");
-  assert.ok(Buffer.from(r.body, "base64").subarray(-6).toString("latin1").includes("%%EOF"));
+
+test("actual Netlify handler returns a valid binary PDF without UTF-8 corruption", async () => {
+  const { PDFDocument } = await import("pdf-lib");
+  const r = await invoke("/api/schedule/export", {query:{month:"2099-11"},authenticated:true});
+  assert.equal(r.statusCode,200);
+  assert.equal(r.isBase64Encoded,true);
+  const bytes=Buffer.from(r.body,"base64");
+  assert.equal(bytes.subarray(0,5).toString(),"%PDF-");
+  const pdf=await PDFDocument.load(bytes);
+  assert.equal(pdf.getPageCount(),1);
 });

@@ -87,6 +87,17 @@ export function ShiftPreviewHost({
       </p>
       <div className="shift-preview-count">
         {names.length} médico{names.length === 1 ? "" : "s"} na escala
+        {shift.capacity != null && (
+          <span
+            className={
+              shift.capacity > names.length ? "preview-open" : "preview-full"
+            }
+          >
+            {shift.capacity > names.length
+              ? `faltam ${shift.capacity - names.length} de ${shift.capacity}`
+              : "equipe completa"}
+          </span>
+        )}
         {hasOffer && (
           <span>
             <ArrowUpRight size={12} />

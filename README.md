@@ -12,9 +12,6 @@ Portal privado da equipe de telemedicina: calendário, gestão de médicos e ace
 - Relatório mensal com turnos, horas, datas e períodos por médico; exportação CSV.
 - Fechamento que congela o mês e reabertura exclusiva do proprietário.
 - Histórico de alterações; cancelamentos e retiradas preservam os registros.
-- Cadastro público (nome, e-mail, senha, CRM/UF) que fica pendente até a administração vincular o médico da escala; permissão opcional para médicos editarem a escala.
-- Conferência: o médico solicita correção de nome/CRM e de turnos (ajustar, retirar, incluir); nada muda até a aprovação, com checagem de conflito e mês fechado.
-- Calendário por mês, semana, dia e lista. Veja [o contrato do incremento](docs/registration-corrections-contract.md).
 
 ## Stack
 

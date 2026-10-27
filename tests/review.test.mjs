@@ -41,6 +41,7 @@ before(async () => {
   );
   await db.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
   passwordHash = await hashPassword(password);
+  await db.query(await readFile(new URL("../server/vacancy-schema.sql", import.meta.url), "utf8"));
   const { app } = await import("../server/app.mjs");
   server = app.listen(0, "127.0.0.1");
   await once(server, "listening");

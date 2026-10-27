@@ -116,6 +116,7 @@ before(async () => {
   );
   await pool.query(await readFile(new URL('../server/workflow-schema.sql', import.meta.url), 'utf8'));
   passwordHash = await hashPassword(password);
+  await pool.query(await readFile(new URL("../server/vacancy-schema.sql", import.meta.url), "utf8"));
   const { app } = await import("../server/app.mjs");
   server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -1272,10 +1273,15 @@ test("ordinary HTTP login ignores spoofed Netlify and forwarding headers for IP 
 test("schedule PDF export follows the original layout and is available to authenticated users only", async () => {
   await createShift({ doctor_ids: [f.a.id, f.b.id] });
   assert.equal((await api(`/schedule/export?month=${month}`, { as: null })).status, 401);
-  const res = await fetch(base + "/api/schedule/export?month=" + month, { headers: { Cookie: f.a.cookie } });
+  const res = await fetch(base + "/api/schedule/export?month=" + month, { headers: { Cookie: f.owner.cookie } });
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /application\/pdf/);
   assert.match(res.headers.get("content-disposition"), /escala-2099-11\.pdf/);
+  // Doctors get the same layout, limited to their own participations.
+  const own = await fetch(base + "/api/schedule/export?month=" + month, { headers: { Cookie: f.a.cookie } });
+  assert.equal(own.status, 200);
+  assert.match(own.headers.get("content-disposition"), /escala-2099-11-individual\.pdf/);
+  assert.equal((await api(`/schedule/export?month=${month}&scope=all`, { as: "a" })).status, 403);
   const bytes = Buffer.from(await res.arrayBuffer());
   assert.equal(bytes.subarray(0, 5).toString(), "%PDF-");
   const { sectionsFor } = await import("../server/pdf.mjs");

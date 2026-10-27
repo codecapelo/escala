@@ -51,6 +51,7 @@ import {
 } from "./utils";
 import type { ShiftOrder } from "./utils";
 import type { Dashboard, Period, Shift, User } from "./types";
+import { StaffingBadge } from "./Vacancies";
 export function MonthControl({
   month,
   onMonth,
@@ -747,10 +748,12 @@ function CalendarGrid({
                           <PeriodIcon period={s.period} size={11} />
                           {s.start_time}
                           <span>–{s.end_time}</span>
-                          {s.assignments.some((a) => a.offer_id) && (
+                          <StaffingBadge shift={s}/>
+                {s.assignments.some((a) => a.offer_id) && (
                             <ArrowUpRight size={10} />
                           )}
                         </span>
+                        <StaffingBadge shift={s}/>
                         <span className="calendar-shift-doctors">
                           {s.assignments[0]
                             ? shortName(s.assignments[0].doctor_name)
@@ -847,6 +850,7 @@ export function ShiftList({
                       : `${s.assignments.length} médicos`}
                   </span>
                 </div>
+                <StaffingBadge shift={s}/>
                 {s.assignments.some((a) => a.offer_id) && (
                   <span className="repasse-tag">
                     <ArrowUpRight size={13} />

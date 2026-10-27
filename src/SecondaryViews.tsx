@@ -358,11 +358,11 @@ export function ReportsView({
     [expanded, setExpanded] = useState<string | null>(null),
     [exporting, setExporting] = useState(false),
     [sort, setSort] = useState<"name" | "hours" | "turns" | "days">("name");
-  async function download() {
+  async function download(format: "pdf" | "csv" = "pdf") {
     setExporting(true);
     try {
-      await exportReport(month);
-      notify("Escala exportada em PDF.");
+      await exportReport(month, format);
+      notify(format === "pdf" ? "Escala exportada em PDF." : "Relatório exportado.");
     } catch (e) {
       notify(message(e));
     } finally {
@@ -398,14 +398,15 @@ export function ReportsView({
               : "Acompanhe a cobertura da equipe e prepare o fechamento do mês."}
           </p>
         </div>
+        <div className="button-row"><button className="button button-secondary" onClick={()=>download("csv")} disabled={exporting||!data}>{user.role==='doctor'?'Exportar meus plantões (CSV)':'Exportar CSV'}</button>
         <button
           className="button button-secondary"
-          onClick={download}
+          onClick={() => download("pdf")}
           disabled={exporting || !data}
         >
           <Download size={17} />
-          {exporting ? "Gerando PDF…" : "Exportar PDF"}
-        </button>
+          {exporting ? "Exportando…" : user.role === "doctor" ? "Exportar meus plantões (PDF)" : "Exportar escala geral (PDF)"}
+        </button></div>
       </div>
       <div className="report-topbar">
         <MonthControl month={month} onMonth={onMonth} />

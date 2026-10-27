@@ -23,6 +23,7 @@ import {
 } from "./utils";
 import type { Period, Shift } from "./types";
 
+import { StaffingBadge } from "./Vacancies";
 export type ScheduleView = "calendar" | "week" | "day" | "list";
 export function addCalendarDays(date: string, offset: number) {
   const value = dateLocal(date);
@@ -234,6 +235,7 @@ function AgendaShift({
       {shift.end_time < shift.start_time && (
         <small className="agenda-next-day">Termina no dia seguinte</small>
       )}
+      <StaffingBadge shift={shift}/>
       <span className="agenda-shift-unit">{shift.unit}</span>
       <span className="agenda-shift-team">
         <Users size={13} />
@@ -370,11 +372,7 @@ export function DayView({
             {date === todayISO() ? "HOJE, NA ESCALA" : "O CUIDADO DESTE DIA"}
           </span>
           <h3>
-            {dayLabel(date, {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            }).replace(/^./, (c) => c.toUpperCase())}
+            {dayLabel(date, { weekday: "long", day: "numeric", month: "long" })}
           </h3>
           <p>
             {entries.length} plantões <span>·</span>{" "}

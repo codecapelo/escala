@@ -403,6 +403,7 @@
   line-height: 1.5;
   letter-spacing: -0.4px;
   color: #36583d;
+  text-transform: capitalize;
   margin: 5px 0;
 }
 .agenda-day-summary p {
@@ -920,4 +921,12 @@
 .generate-models li span {
   font-size: 12px;
   color: #6b7d6e;
+}
+.shift-preview-count span.preview-open {
+  color: #78500d;
+  background: #fff0cf;
+}
+.shift-preview-count span.preview-full {
+  color: #236042;
+  background: #e4f0e7;
 }

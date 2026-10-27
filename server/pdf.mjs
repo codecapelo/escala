@@ -73,7 +73,7 @@ export function sectionsFor(shifts) {
     return out;
   });
 }
-export async function schedulePdf(month, shifts) {
+export async function schedulePdf(month, shifts, { subtitle } = {}) {
   const doc = await PDFDocument.create();
   doc.setTitle(
     `AMIL TELEMED ${months[Number(month.slice(5)) - 1]} - ${month.slice(0, 4)}`,
@@ -132,6 +132,14 @@ export async function schedulePdf(month, shifts) {
   y -= 15;
   centered("Noite - 19:00 às 00:00 // Madrugada - 00:00 às 07:00", bold, 9.5);
   y -= 34;
+  if (subtitle) {
+    centered(subtitle, bold, 11);
+    y -= 26;
+  }
+  if (!shifts.length) {
+    centered("Nenhum plantão neste mês.", font, SIZE);
+    y -= 26;
+  }
   for (const sec of sectionsFor(shifts)) {
     // Each cell is one name, already wrapped into lines; rows are placed together.
     const cells =

@@ -35,7 +35,10 @@ export interface Shift {
   end_time: string;
   period: Period;
   unit: string;
-  notes: string;
+  notes?: string;
+  capacity: number | null;
+  available_vacancies: number;
+  pending_vacancies: number;
   source: string | null;
   needs_review: boolean;
   assignments: Assignment[];

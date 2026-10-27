@@ -20,7 +20,7 @@ const month='2099-11';
 const slot=(extra={})=>({date:'2099-11-12',start_time:'08:00',end_time:'12:00',period:'morning',unit:'Test Unit',...extra});
 let server,base,f,hash;
 before(async()=>{
- for(const file of ['schema.sql','review-schema.sql','workflow-schema.sql'])await db.query(await readFile(new URL('../server/'+file,import.meta.url),'utf8'));
+ for(const file of ['schema.sql','review-schema.sql','workflow-schema.sql','vacancy-schema.sql'])await db.query(await readFile(new URL('../server/'+file,import.meta.url),'utf8'));
  // The additive workflow migration is safe to run twice.
  await db.query(await readFile(new URL('../server/workflow-schema.sql',import.meta.url),'utf8'));
  hash=await hashPassword(password);
@@ -179,7 +179,8 @@ test('schedule permission revokes old sessions and authorizes precisely shift/as
  assert.equal(login.body.user.role,'doctor');assert.equal(login.body.user.can_manage_schedule,true);
  const manager=(path,body,method)=>api(path,{as:null,cookie,body,method});
  const created=await manager('/shifts',{...slot(),doctor_ids:[f.b.id]});assert.equal(created.status,201);const s=created.body.shifts[0];
- assert.equal((await manager('/shifts/'+s.id,{notes:'Changed by schedule manager'},'PATCH')).status,200);
+ assert.equal((await manager('/shifts/'+s.id,{notes:'Changed by schedule manager'},'PATCH')).status,403);
+ assert.equal((await manager('/shifts/'+s.id,{unit:'Updated unit'},'PATCH')).status,200);
  assert.equal((await manager('/shifts/'+s.id+'/assignments',{doctor_id:f.a.id})).status,200);
  assert.equal((await manager('/assignments/'+s.assignments[0].id,{reason:'Manager correction'},'DELETE')).status,200);
  assert.equal((await manager('/shifts/'+s.id,{reason:'Manager cancellation'},'DELETE')).status,200);

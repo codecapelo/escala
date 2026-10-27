@@ -186,7 +186,7 @@ test("criar plantão repetido, editar, remover e adicionar médico com auditoria
   await detail.getByRole("button", { name: "Editar plantão" }).click();
   const edit = page.getByRole("dialog", { name: "Editar plantão" });
   await edit
-    .getByLabel("Observações (opcional)")
+    .getByLabel("Observações administrativas (opcional)")
     .fill("Observação de verificação E2E " + fixture.tag);
   await edit.getByRole("button", { name: "Salvar alterações" }).click();
   await expect(edit).toHaveCount(0);
@@ -342,7 +342,7 @@ test("convite via interface, ativação única e senha escolhida no formulário"
   try {
     await activated.goto(url.pathname + url.search);
     await activated
-      .getByLabel("Seu nome completo", { exact: true })
+      .getByLabel("Nome completo", { exact: true })
       .fill(fixture.doctor.name);
     await activated
       .getByLabel("Crie sua senha", { exact: false })
@@ -363,7 +363,7 @@ test("convite via interface, ativação única e senha escolhida no formulário"
     ).toBeVisible();
     await activated.goto(url.pathname + url.search);
     await activated
-      .getByLabel("Seu nome completo", { exact: true })
+      .getByLabel("Nome completo", { exact: true })
       .fill(fixture.doctor.name);
     await activated
       .getByLabel("Crie sua senha", { exact: false })
