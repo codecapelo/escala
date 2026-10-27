@@ -47,10 +47,13 @@ try {
     )
   ).rows[0];
   const doctors = [];
-  for (const [i, name] of [
-    "Alessandra Jespersen de Athayde Rocha",
-    "Amanda Araújo de Oliveira",
-  ].entries()) {
+  // Use the first two active doctors already in the local database, never hard-coded real names.
+  const names = (
+    await db.query(
+      "SELECT name FROM escala.doctors WHERE active ORDER BY name LIMIT 2",
+    )
+  ).rows.map((r) => r.name);
+  for (const [i, name] of names.entries()) {
     const d = (
       await db.query("SELECT * FROM escala.doctors WHERE name=$1", [name])
     ).rows[0];
