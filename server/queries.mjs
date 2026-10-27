@@ -85,7 +85,11 @@ export function ensureFuture(s) {
 export async function shiftsFor(db, month) {
   const { rows } = await db.query(
     `SELECT s.id,s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,
- s.period,s.unit,s.notes,s.source,s.needs_review,
+ s.period,s.unit,s.notes,s.source,s.needs_review,s.capacity,
+ (SELECT count(*)::int FROM escala.vacancy_requests r WHERE r.shift_id=s.id AND r.status='pending') pending_vacancies,
+ CASE WHEN s.capacity IS NULL THEN 0 ELSE GREATEST(0,s.capacity-
+ (SELECT count(*)::int FROM escala.assignments a WHERE a.shift_id=s.id AND a.removed_at IS NULL)-
+ (SELECT count(*)::int FROM escala.vacancy_requests r WHERE r.shift_id=s.id AND r.status='pending')) END available_vacancies,
  COALESCE((SELECT json_agg(json_build_object('id',a.id,'doctor_id',d.id,'doctor_name',d.name,'doctor_color',d.color,'offer_id',o.id) ORDER BY d.name)
  FROM escala.assignments a JOIN escala.doctors d ON d.id=a.doctor_id LEFT JOIN escala.offers o ON o.assignment_id=a.id AND o.status='open'
  WHERE a.shift_id=s.id AND a.removed_at IS NULL),'[]') assignments FROM escala.shifts s

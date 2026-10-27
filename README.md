@@ -12,9 +12,6 @@ Portal privado da equipe de telemedicina: calendário, gestão de médicos e ace
 - Relatório mensal com turnos, horas, datas e períodos por médico; exportação CSV.
 - Fechamento que congela o mês e reabertura exclusiva do proprietário.
 - Histórico de alterações; cancelamentos e retiradas preservam os registros.
-- Cadastro público (nome, e-mail, senha, CRM/UF) que fica pendente até a administração vincular o médico da escala; permissão opcional para médicos editarem a escala.
-- Conferência: o médico solicita correção de nome/CRM e de turnos (ajustar, retirar, incluir); nada muda até a aprovação, com checagem de conflito e mês fechado.
-- Calendário por mês, semana, dia e lista. Veja [o contrato do incremento](docs/registration-corrections-contract.md).
 
 ## Stack
 
@@ -30,7 +27,7 @@ Requer Node 22+ e PostgreSQL. Instale com `npm ci`; configure `.env.local` usand
 
 O PDF nominal e o JSON extraído são privados e não integram este repositório. `docs/import-october.py` reproduz a extração com Poppler. O resultado é fornecido a `scripts/import.mjs`, que importa em transação, verifica SHA-256 e evita executar a mesma importação duas vezes. O mês precisa estar vazio para uma nova importação; ambiguidades permanecem sinalizadas para conferência humana.
 
-O operador executa `node --env-file=.env.local scripts/bootstrap-owner.mjs email nome` para gerar um convite inicial privado de proprietário. O link de uso único é escrito em `private/owner-access.txt`; a senha é escolhida pelo usuário. Não existe conta/senha padrão. O cadastro público cria apenas uma conta pendente, sem acesso à escala até a aprovação. Convites e links de recuperação devem ser compartilhados manualmente; a aplicação não envia e-mails.
+O operador executa `node --env-file=.env.local scripts/bootstrap-owner.mjs email nome` para gerar um convite inicial privado de proprietário. O link de uso único é escrito em `private/owner-access.txt`; a senha é escolhida pelo usuário. Não existe conta/senha padrão nem cadastro público. Convites e links de recuperação devem ser compartilhados manualmente; a aplicação não envia e-mails.
 
 Depois de migrar o schema e antes de publicar, `scripts/runtime-role.mjs` cria o papel restrito de execução e grava o ambiente em arquivo privado. Migrações/importação continuam usando a conexão administrativa, nunca exposta ao navegador.
 

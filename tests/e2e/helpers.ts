@@ -7,6 +7,7 @@ import {
 import { readFileSync, mkdirSync } from "node:fs";
 import { parseEnv } from "node:util";
 const environment = parseEnv(readFileSync("private/local.env", "utf8"));
+if(process.env.E2E_DATABASE_URL)environment.DATABASE_URL=process.env.E2E_DATABASE_URL;
 if (
   !environment.DATABASE_URL ||
   !["127.0.0.1", "localhost", "[::1]"].includes(
@@ -15,7 +16,7 @@ if (
 )
   throw new Error("Refusing nonlocal database for E2E.");
 export const accounts = JSON.parse(
-  readFileSync("private/local-test-accounts.json", "utf8"),
+  readFileSync(process.env.E2E_ACCOUNTS_FILE || "private/local-test-accounts.json", "utf8"),
 );
 export const importedMonth = "2026-10";
 export const nextMonth = "2026-11";
@@ -33,13 +34,14 @@ export async function login(
   ).toBeVisible();
 }
 export async function nav(page: Page, label: string) {
+  const name = new RegExp("^" + label + "(?:\\s*\\d+)?$");
   const mobile = await page.locator(".bottom-nav").isVisible();
-  await page
-    .getByRole("navigation", {
-      name: mobile ? "Navegação móvel" : "Navegação principal",
-    })
-    .getByRole("button", { name: new RegExp("^" + label + "(?:\\s*\\d+)?$") })
-    .click();
+  const bottom = page.getByRole("navigation", {name:"Navegação móvel"}).getByRole("button",{name});
+  if(mobile && await bottom.count())await bottom.click();
+  else {
+    if(mobile && !await page.locator('.sidebar-open').count())await page.getByRole('button',{name:'Abrir menu',exact:true}).click();
+    await page.getByRole("navigation", {name:"Navegação principal"}).getByRole("button",{name}).click();
+  }
 }
 export async function monthTo(page: Page, target: string) {
   const months = [

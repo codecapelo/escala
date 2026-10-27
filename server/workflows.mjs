@@ -4,6 +4,7 @@ import {transaction} from './db.mjs';
 import {fail,hashPassword} from './security.mjs';
 import * as V from './validation.mjs';
 import * as Q from './queries.mjs';
+import {ensureCapacity} from './vacancies.mjs';
 
 const route=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
 const note=V.z.string().trim().min(3).max(1000);
@@ -63,6 +64,7 @@ async function pendingCorrection(db,id) {
 async function assignSlot(db,doctorId,s,notes='') {
  let target=(await db.query(`SELECT id FROM escala.shifts WHERE date=$1 AND start_time=$2 AND end_time=$3 AND period=$4 AND unit=$5 AND cancelled_at IS NULL ORDER BY created_at,id LIMIT 1`,[s.date,s.start_time,s.end_time,s.period,s.unit])).rows[0];
  if(!target)target=(await db.query(`INSERT INTO escala.shifts(date,start_time,end_time,period,unit,notes,source) VALUES($1,$2,$3,$4,$5,$6,'Conferência médica') RETURNING id`,[s.date,s.start_time,s.end_time,s.period,s.unit,notes])).rows[0];
+ await ensureCapacity(db,target.id);
  const a=(await db.query('INSERT INTO escala.assignments(shift_id,doctor_id) VALUES($1,$2) RETURNING id',[target.id,doctorId])).rows[0];
  return {shift_id:target.id,assignment_id:a.id};
 }

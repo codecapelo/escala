@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 const local = parseEnv(
   readFileSync(new URL("../../private/local.env", import.meta.url), "utf8"),
 );
+if(process.env.E2E_DATABASE_URL){local.DATABASE_URL=process.env.E2E_DATABASE_URL;local.DATABASE_URL_UNPOOLED=process.env.E2E_DATABASE_URL;}
 for (const key of ["DATABASE_URL", "DATABASE_URL_UNPOOLED"])
   if (
     local[key] &&

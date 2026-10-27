@@ -34,6 +34,7 @@ export const activate = z.object({
 });
 export const shift = z
   .object({
+    capacity: z.number().int().min(0).max(500).nullable().optional(),
     date,
     start_time: time,
     end_time: time,
@@ -48,6 +49,7 @@ export const shift = z
     "Horário inicial e final devem ser diferentes.",
   );
 export const shiftPatch = z.object({
+  capacity: z.number().int().min(0).max(500).nullable().optional(),
   date: date.optional(),
   start_time: time.optional(),
   end_time: time.optional(),

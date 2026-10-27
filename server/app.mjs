@@ -15,6 +15,8 @@ import * as V from "./validation.mjs";
 import * as Q from "./queries.mjs";
 import { reviewRouter } from "./review.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
+import { vacancyRouter, ensureCapacity, cancelVacancyRequests, staffing } from './vacancies.mjs';
+import { schedulePdf } from './schedule-pdf.mjs';
 export const app = express();
 app.disable("x-powered-by");
 // serverless-http supplies a completed IncomingMessage with a raw Buffer.
@@ -256,6 +258,21 @@ app.use("/api", async (req, res, next) => {
     next(e);
   }
 });
+// Administrative observations never leave the server for a physician role,
+// including physicians with permission to manage the schedule and nested audit snapshots.
+app.use('/api', (req,res,next)=>{
+ const json=res.json.bind(res);
+ res.json=body=>{
+  function redact(value){
+   if(Array.isArray(value))return value.map(redact);
+   if(value&&typeof value==='object'&&!(value instanceof Date))return Object.fromEntries(Object.entries(value).filter(([key])=>!['notes','source'].includes(key)).map(([key,val])=>[key,key==='metadata'?{}:redact(val)]));
+   return value;
+  }
+  return json(req.user?.role==='doctor'?redact(body):body);
+ };
+ next();
+});
+app.use('/api',vacancyRouter({admin,monthOf}));
 app.get(
   "/api/auth/me",
   route(async (req, res) =>
@@ -375,6 +392,8 @@ app.post(
   route(async (req, res) => {
     scheduleManager(req);
     const body = V.shift.parse(req.body);
+    if(req.user.role==='doctor'&&(req.body.notes!==undefined||req.body.capacity!==undefined))fail(403,'Observações e capacidade são exclusivas da administração.');
+    if(body.capacity!==null&&body.capacity!==undefined&&body.capacity<new Set(body.doctor_ids).size)fail(400,'A capacidade não pode ser menor que a equipe.');
     const dates = [
       ...new Set(body.dates?.length ? body.dates : [body.date]),
     ].sort();
@@ -389,7 +408,7 @@ app.post(
           await Q.ensureNoOverlap(req.db, id, s);
         }
         const { rows } = await req.db.query(
-          "INSERT INTO escala.shifts(date,start_time,end_time,period,unit,notes) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
+          "INSERT INTO escala.shifts(date,start_time,end_time,period,unit,notes,capacity) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
           [
             date,
             body.start_time,
@@ -397,6 +416,7 @@ app.post(
             body.period,
             body.unit,
             body.notes,
+            body.capacity ?? null,
           ],
         );
         ids.push(rows[0].id);
@@ -429,9 +449,12 @@ app.patch(
     scheduleManager(req);
     const id = idOf(req);
     const body = V.shiftPatch.parse(req.body);
+    if(req.user.role==='doctor'&&(req.body.notes!==undefined||req.body.capacity!==undefined))fail(403,'Observações e capacidade são exclusivas da administração.');
     await transaction(req.db, async () => {
       const old = await Q.getShift(req.db, id);
       const s = { ...old, ...body };
+      if(body.capacity!==undefined){const counts=await staffing(req.db,id);if(body.capacity===null&&counts.pending)fail(409,'Decida as solicitações pendentes antes de remover a capacidade.');if(body.capacity!==null&&body.capacity<counts.assigned+counts.pending)fail(409,'A capacidade não pode ser menor que os médicos alocados e as reservas pendentes.');}
+      if(['date','start_time','end_time','period','unit'].some(k=>body[k]!==undefined&&body[k]!==old[k]))await cancelVacancyRequests(req.db,id);
       await Q.ensureUnlocked(req.db, old.date);
       await Q.ensureUnlocked(req.db, s.date);
       if (s.start_time === s.end_time)
@@ -446,7 +469,7 @@ app.patch(
         for (const a of assignments)
           await Q.ensureNoOverlap(req.db, a.doctor_id, s, a.id);
       await req.db.query(
-        "UPDATE escala.shifts SET date=$1,start_time=$2,end_time=$3,period=$4,unit=$5,notes=$6,needs_review=$7 WHERE id=$8",
+        "UPDATE escala.shifts SET date=$1,start_time=$2,end_time=$3,period=$4,unit=$5,notes=$6,needs_review=$7,capacity=$8 WHERE id=$9",
         [
           s.date,
           s.start_time,
@@ -455,6 +478,7 @@ app.patch(
           s.unit,
           s.notes,
           s.needs_review,
+          s.capacity,
           id,
         ],
       );
@@ -485,6 +509,7 @@ app.delete(
     await transaction(req.db, async () => {
       const s = await Q.getShift(req.db, id);
       await Q.ensureUnlocked(req.db, s.date);
+      await cancelVacancyRequests(req.db,id);
       const assigned = (
         await req.db.query(
           "SELECT doctor_id FROM escala.assignments WHERE shift_id=$1 AND removed_at IS NULL",
@@ -521,6 +546,7 @@ app.post(
     await transaction(req.db, async () => {
       const s = await Q.getShift(req.db, id);
       await Q.ensureUnlocked(req.db, s.date);
+      await ensureCapacity(req.db,id);
       const d = await Q.ensureDoctor(req.db, doctor_id);
       await Q.ensureNoOverlap(req.db, doctor_id, s);
       await req.db.query(
@@ -1008,6 +1034,12 @@ app.post(
     res.json({ inviteUrl: inviteUrl(token), expires_at: result.expires_at });
   }),
 );
+app.get('/api/schedule/export',route(async(req,res)=>{
+ const m=monthOf(req);
+ if(req.user.role==='doctor'&&req.query.scope==='all')fail(403,'A exportação geral é exclusiva da administração.');
+ const shifts=await Q.shiftsFor(req.db,m);
+ res.type('application/pdf').attachment(`escala-${m}${req.user.role==='doctor'?'-individual':''}.pdf`).send(await schedulePdf(shifts,m,req.user));
+}));
 app.get(
   "/api/reports",
   route(async (req, res) =>
@@ -1018,6 +1050,7 @@ app.get(
   "/api/reports/export",
   route(async (req, res) => {
     const m = monthOf(req);
+    if(req.user.role==='doctor'&&req.query.scope==='all')fail(403,'A exportação geral é exclusiva da administração.');
     const report = await Q.reportFor(req.db, m, req.user);
     const lines = [
       [
@@ -1073,6 +1106,8 @@ app.post(
     }
     await transaction(req.db, async () => {
       if (b.locked) {
+        const reservations=(await req.db.query("SELECT count(*)::int n FROM escala.vacancy_requests r JOIN escala.shifts s ON s.id=r.shift_id WHERE r.status='pending' AND to_char(s.date,'YYYY-MM')=$1 AND s.cancelled_at IS NULL",[m])).rows[0].n;
+        if(reservations)fail(409,`Há ${reservations} solicitação(ões) de vaga pendente(s). Decida antes de fechar o mês.`);
         const unresolved = (
           await req.db.query(
             `SELECT count(*)::int count FROM escala.imports i,

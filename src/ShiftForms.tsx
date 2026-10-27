@@ -36,15 +36,18 @@ import {
   canEditSchedule,
 } from "./utils";
 import type { Doctor, Shift, User, Period, Offer } from "./types";
+import Vacancies from "./Vacancies";
 export function ShiftForm({
   shift,
   defaultDate,
+  user,
   doctors,
   onClose,
   onSaved,
 }: {
   shift?: Shift;
   defaultDate: string;
+  user: User;
   doctors: Doctor[];
   onClose: () => void;
   onSaved: () => void;
@@ -115,7 +118,7 @@ export function ShiftForm({
       end_time: end,
       period,
       unit: String(f.get("unit")),
-      notes: String(f.get("notes")),
+      ...(user.role !== 'doctor' ? { notes: String(f.get("notes")||''), capacity: f.get('capacity') === '' ? null : Number(f.get('capacity')) } : {}),
     };
     try {
       if (shift) await patch(`/shifts/${shift.id}`, body);
@@ -328,15 +331,18 @@ export function ShiftForm({
               )}
             </>
           )}
-          <Field label="Observações (opcional)">
+          {user.role!=='doctor'&&<><Field label="Quantidade de médicos necessária">
+            <input name="capacity" type="number" min={0} max={500} defaultValue={shift?.capacity??''} placeholder="Defina para disponibilizar vagas" />
+          </Field><Field label="Observações administrativas (opcional)">
             <textarea
               name="notes"
               rows={3}
               defaultValue={shift?.notes || ""}
-              placeholder="Informações importantes para a equipe"
+              placeholder="Informações visíveis somente para a administração"
               maxLength={2000}
             />
           </Field>
+          </>}
           {error && <ErrorBox>{error}</ErrorBox>}
         </div>
         <div className="modal-footer">
@@ -443,6 +449,7 @@ export function ShiftDetail({
               </p>
             </div>
           </div>
+          <Vacancies key={shift.id} shift={shift} user={user} locked={locked} onChanged={onChanged}/>
           {locked && (
             <div className="notice">
               <LockKeyhole size={17} />
@@ -565,13 +572,13 @@ export function ShiftDetail({
               <Submit busy={busy}>Adicionar</Submit>
             </form>
           )}
-          {shift.notes && (
+          {user.role!=="doctor" && shift.notes && (
             <div className="notes-block">
               <span className="eyebrow">OBSERVAÇÕES</span>
               <p>{shift.notes}</p>
             </div>
           )}
-          {shift.source && (
+          {user.role!=="doctor" && shift.source && (
             <div className="source-block">
               <Info size={13} />
               <span>Procedência: {shift.source}</span>

@@ -486,6 +486,7 @@ export default function App() {
       >
         {form && data && (
           <ShiftForm
+            user={user}
             shift={form.shift}
             defaultDate={form.date}
             doctors={data.doctors}

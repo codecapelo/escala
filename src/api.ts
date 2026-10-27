@@ -48,9 +48,9 @@ export function message(error: unknown) {
     ? error.message
     : "Algo deu errado. Tente novamente.";
 }
-export async function exportReport(month: string) {
+export async function exportReport(month: string, format: "pdf" | "csv" = "pdf") {
   const res = await fetch(
-    `/api/reports/export?month=${encodeURIComponent(month)}`,
+    format === "pdf" ? `/api/schedule/export?month=${encodeURIComponent(month)}` : `/api/reports/export?month=${encodeURIComponent(month)}`,
     { credentials: "same-origin" },
   );
   if (!res.ok) {
@@ -63,7 +63,7 @@ export async function exportReport(month: string) {
   const url = URL.createObjectURL(await res.blob());
   const link = document.createElement("a");
   link.href = url;
-  link.download = `escala-amil-${month}.csv`;
+  link.download = `escala-amil-${month}.${format}`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 export default async function setup() {
   const local = parseEnv(readFileSync("private/local.env", "utf8"));
+  if(process.env.E2E_DATABASE_URL)local.DATABASE_URL=process.env.E2E_DATABASE_URL;
   if (
     !local.DATABASE_URL ||
     !["127.0.0.1", "localhost", "[::1]"].includes(
@@ -14,7 +15,7 @@ export default async function setup() {
       "E2E throttle reset is permitted only on the configured local database.",
     );
   const accounts = JSON.parse(
-    readFileSync("private/local-test-accounts.json", "utf8"),
+    readFileSync(process.env.E2E_ACCOUNTS_FILE || "private/local-test-accounts.json", "utf8"),
   );
   const db = new pg.Client({ connectionString: local.DATABASE_URL });
   await db.connect();
