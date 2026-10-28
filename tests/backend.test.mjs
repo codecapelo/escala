@@ -1582,3 +1582,181 @@ test("waiting list priority is scoped to an entry, preserves arrival order on ti
   const normal = (await api(`/shifts/${another.id}/waitlist`)).body;
   assert.deepEqual(normal.entries.map((e) => e.doctor_id), [f.b.id, f.c.id], "priority in one shift must not affect another");
 });
+
+async function queueFixture({ directed = false, priority = false } = {}) {
+  const s = await createShift({ capacity: 1, doctor_ids: [f.a.id] });
+  const b = (await post(`/shifts/${s.id}/waitlist`, {}, "b")).body.entry;
+  const c = (await post(`/shifts/${s.id}/waitlist`, {}, "c")).body.entry;
+  if (priority) await pool.query("UPDATE escala.waitlist SET priority=100 WHERE id=$1", [c.id]);
+  const offer = (await post("/offers", { assignment_id: s.assignments[0].id, ...(directed ? { target_doctor_id: f.c.id } : {}) }, "a")).body.offer;
+  return { s, b, c, offer };
+}
+async function queueOffer(id, as = "owner") {
+  return (await api(`/dashboard?month=${month}`, { as })).body.offers.find((o) => o.id === id);
+}
+async function queueTick() {
+  const { default: tick } = await import("../netlify/functions/offer-queue.mjs");
+  assert.equal((await tick()).status, 204);
+}
+
+test("automatic queue response windows cover future, same-day and ongoing shifts at their boundaries", async () => {
+  const { responseWindowMs } = await import("../server/offer-queue.mjs");
+  const now = new Date("2026-11-01T07:00:00-03:00");
+  const s = (date, start_time) => ({ date, start_time });
+  assert.equal(responseWindowMs(s("2026-11-02", "07:01"), now), 7200000);
+  assert.equal(responseWindowMs(s("2026-11-02", "07:00"), now), 1800000);
+  assert.equal(responseWindowMs(s("2026-11-01", "09:01"), now), 1800000);
+  assert.equal(responseWindowMs(s("2026-11-01", "09:00"), now), 300000);
+  assert.equal(responseWindowMs(s("2026-11-01", "06:00"), now), 300000);
+});
+
+test("automatic queue snapshots priority and blocks anybody outside the current turn without exposing names", async () => {
+  const { s, offer } = await queueFixture({ priority: true });
+  const own = await queueOffer(offer.id, "c");
+  assert.equal(own.queue_is_my_turn, true);
+  assert.equal(own.can_request, true);
+  assert.equal(own.queue_current_name, "Doctor c");
+  assert.equal(own.queue_my_position, 1);
+  const other = await queueOffer(offer.id, "b");
+  assert.equal(other.can_request, false);
+  assert.equal(other.queue_current_name, null);
+  assert.equal(other.queue_my_position, 2);
+  assert.deepEqual(other.waiting, []);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).body.code, "QUEUE_WAIT");
+  await pool.query("UPDATE escala.waitlist SET priority=0 WHERE doctor_id=$1", [f.c.id]);
+  assert.equal((await queueOffer(offer.id, "c")).queue_is_my_turn, true, "changing general priority cannot jump an already published queue");
+  assert.equal((await row("SELECT count(*)::int n FROM escala.offer_queue_entries WHERE offer_id=$1", [offer.id])).n, 2);
+  assert.equal((await row("SELECT doctor_id FROM escala.assignments WHERE shift_id=$1 AND removed_at IS NULL", [s.id])).doctor_id, f.a.id);
+});
+
+test("directed offers expose no availability list or queue and bypass a different doctor's priority", async () => {
+  const { offer, b } = await queueFixture({ directed: true });
+  await pool.query("UPDATE escala.waitlist SET priority=100 WHERE id=$1", [b.id]);
+  for (const as of ["owner", "a", "c"]) {
+    const seen = await queueOffer(offer.id, as);
+    assert.deepEqual(seen.waiting, []);
+    assert.equal(seen.waiting_count, 0);
+    assert.equal(seen.i_am_waiting, false);
+    assert.equal(seen.queue_mode, "directed");
+    assert.equal(seen.queue_expires_at, null);
+  }
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 200);
+  assert.equal((await row("SELECT count(*)::int n FROM escala.offer_queue_entries WHERE offer_id=$1", [offer.id])).n, 0);
+});
+
+test("scheduled worker advances an expired turn without a dashboard visit and rejects the late doctor", async () => {
+  const { offer } = await queueFixture();
+  await pool.query("UPDATE escala.offer_queue_entries SET expires_at=now()-interval '1 second' WHERE offer_id=$1 AND status='invited'", [offer.id]);
+  await queueTick();
+  const next = await row("SELECT * FROM escala.offer_queue_entries WHERE offer_id=$1 AND status='invited'", [offer.id]);
+  assert.equal(next.doctor_id, f.c.id);
+  assert.equal((await row("SELECT status FROM escala.offer_queue_entries WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.b.id])).status, "expired");
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).body.code, "QUEUE_WAIT");
+  await queueTick();
+  assert.equal((await row("SELECT count(*)::int n FROM escala.audit WHERE action='offer_queue_invited' AND metadata->>'offer_id'=$1", [offer.id])).n, 2, "scheduler is idempotent");
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 200);
+});
+
+test("passing a turn keeps general availability and the exhausted queue becomes public", async () => {
+  const { offer, b, c } = await queueFixture();
+  assert.equal((await post(`/offers/${offer.id}/queue/pass`, {}, "c")).status, 409);
+  assert.equal((await post(`/offers/${offer.id}/queue/pass`, {}, "b")).status, 200);
+  assert.equal((await queueOffer(offer.id, "c")).queue_is_my_turn, true);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).body.code, "QUEUE_WAIT");
+  assert.equal((await post(`/offers/${offer.id}/queue/pass`, {}, "c")).status, 200);
+  assert.equal((await queueOffer(offer.id, "b")).queue_mode, "public");
+  assert.equal((await queueOffer(offer.id, "b")).can_request, true);
+  assert.deepEqual((await pool.query("SELECT status FROM escala.waitlist WHERE id=ANY($1::uuid[]) ORDER BY id", [[b.id, c.id]])).rows.map(r => r.status), ["waiting", "waiting"]);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).status, 200);
+});
+
+test("approval pauses the queue; withdrawal and administrative refusal pass only this offer onward", async () => {
+  const { offer } = await queueFixture();
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).status, 200);
+  await pool.query("UPDATE escala.offer_queue_entries SET expires_at=now()-interval '1 hour' WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.b.id]);
+  await queueTick();
+  assert.equal((await row("SELECT status FROM escala.offer_queue_entries WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.c.id])).status, "waiting");
+  assert.equal((await post(`/offers/${offer.id}/withdraw`, {}, "b")).status, 200);
+  assert.equal((await queueOffer(offer.id, "c")).can_request, true);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/reject`, { note: "Revisão administrativa" })).status, 200);
+  assert.equal((await queueOffer(offer.id, "b")).queue_mode, "public");
+});
+
+test("an overlapping commitment skips the first doctor and late arrivals do not jump the frozen queue", async () => {
+  const { s, offer } = await queueFixture();
+  await createShift({ date: s.date, start_time: s.start_time, end_time: s.end_time, doctor_ids: [f.b.id] });
+  await queueTick();
+  assert.equal((await queueOffer(offer.id, "c")).queue_is_my_turn, true);
+  assert.equal((await row("SELECT status FROM escala.offer_queue_entries WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.b.id])).status, "skipped");
+  const user = await row("INSERT INTO escala.users(name,email,password_hash,role,doctor_id) VALUES('Late user','late@queue.test',$1,'doctor',$2) RETURNING id", [passwordHash, f.free.id]);
+  const token = "late-queue-fixture";
+  await pool.query("INSERT INTO escala.sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 day')", [digest(token), user.id]);
+  f.free.cookie = "escala_session=" + token;
+  assert.equal((await post(`/shifts/${s.id}/waitlist`, {}, "free")).status, 201);
+  await pool.query("UPDATE escala.waitlist SET priority=100 WHERE doctor_id=$1", [f.free.id]);
+  assert.equal((await queueOffer(offer.id, "free")).can_request, false);
+  assert.equal((await queueOffer(offer.id, "c")).can_request, true);
+  assert.equal((await row("SELECT count(*)::int n FROM escala.offer_queue_entries WHERE offer_id=$1", [offer.id])).n, 2);
+});
+
+test("a late acceptance advances the queue even when its request is denied, with no second chance before the next turn", async () => {
+  const { offer } = await queueFixture();
+  await pool.query("UPDATE escala.offer_queue_entries SET expires_at=now()-interval '1 second' WHERE offer_id=$1 AND status='invited'", [offer.id]);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).body.code, "QUEUE_WAIT");
+  assert.equal((await row("SELECT doctor_id FROM escala.offer_queue_entries WHERE offer_id=$1 AND status='invited'", [offer.id])).doctor_id, f.c.id);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "c")).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/approve`, {})).status, 200);
+  assert.equal((await row("SELECT status FROM escala.offer_queue_entries WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.c.id])).status, "accepted");
+});
+
+test("administrator queue advance requires permission and an audited reason", async () => {
+  const { offer } = await queueFixture();
+  assert.equal((await post(`/offers/${offer.id}/queue/skip`, { note: "Não respondeu" }, "b")).status, 403);
+  assert.equal((await post(`/offers/${offer.id}/queue/skip`, {})).status, 400);
+  assert.equal((await post(`/offers/${offer.id}/queue/skip`, { note: "Solicitado pelo canal da equipe" })).status, 200);
+  assert.equal((await queueOffer(offer.id, "c")).queue_is_my_turn, true);
+  assert.equal((await row("SELECT metadata->>'reason' reason FROM escala.audit WHERE action='offer_queue_passed'")).reason, "Solicitado pelo canal da equipe");
+});
+
+test("legacy open offers get a fresh timer and previously pending offers remain unchanged", async () => {
+  const s = await createShift({ capacity: 1, doctor_ids: [f.a.id] });
+  await post(`/shifts/${s.id}/waitlist`, {}, "b");
+  const old = await row("INSERT INTO escala.offers(assignment_id,from_doctor_id,created_at) VALUES($1,$2,now()-interval '2 days') RETURNING *", [s.assignments[0].id, f.a.id]);
+  const start = Date.now();
+  assert.equal((await queueOffer(old.id, "b")).can_request, true);
+  const entry = await row("SELECT invited_at,expires_at FROM escala.offer_queue_entries WHERE offer_id=$1", [old.id]);
+  assert(entry.invited_at.getTime() >= start - 1000);
+  assert.equal(entry.expires_at.getTime() - entry.invited_at.getTime(), 7200000);
+  await post(`/offers/${old.id}/cancel`, {}, "a");
+  const pending = await row("INSERT INTO escala.offers(assignment_id,from_doctor_id,status,requested_doctor_id,requested_by,requested_at) VALUES($1,$2,'pending',$3,$4,now()) RETURNING *", [s.assignments[0].id, f.a.id, f.b.id, f.b.user.id]);
+  await queueTick();
+  assert.equal((await queueOffer(pending.id)).queue_mode, "legacy");
+  assert.equal((await row("SELECT count(*)::int n FROM escala.offer_queue_entries WHERE offer_id=$1", [pending.id])).n, 0);
+  assert.equal((await post(`/offers/${pending.id}/approve`, {})).status, 200);
+});
+
+test("closed months pause automatic advancement and acceptance; reopening reevaluates deadlines", async () => {
+  const { offer } = await queueFixture();
+  await pool.query("UPDATE escala.offer_queue_entries SET expires_at=now()-interval '1 second' WHERE offer_id=$1 AND status='invited'", [offer.id]);
+  await pool.query("INSERT INTO escala.months(month,locked) VALUES($1,true)", [month]);
+  await queueTick();
+  assert.equal((await row("SELECT doctor_id FROM escala.offer_queue_entries WHERE offer_id=$1 AND status='invited'", [offer.id])).doctor_id, f.b.id);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, "b")).body.code, "MONTH_LOCKED");
+  await pool.query("UPDATE escala.months SET locked=false WHERE month=$1", [month]);
+  await queueTick();
+  assert.equal((await queueOffer(offer.id, "c")).can_request, true);
+});
+
+test("only the current doctor wins competing acceptance requests and cancellation permits a fast directed offer", async () => {
+  const { offer, s } = await queueFixture();
+  const requests = await Promise.all([post(`/offers/${offer.id}/accept`, {}, "c"), post(`/offers/${offer.id}/accept`, {}, "b")]);
+  assert.equal(requests[0].status, 409);
+  assert.equal(requests[1].status, 200);
+  assert.equal((await post(`/offers/${offer.id}/cancel`, {}, "a")).status, 200);
+  assert.equal((await row("SELECT count(*)::int n FROM escala.offer_queue_entries WHERE offer_id=$1 AND status IN ('waiting','invited','requested')", [offer.id])).n, 0);
+  const directed = (await post("/offers", { assignment_id: s.assignments[0].id, target_doctor_id: f.c.id }, "a")).body.offer;
+  assert.equal((await post(`/offers/${directed.id}/accept`, {}, "c")).status, 200);
+  assert.equal((await post(`/offers/${directed.id}/approve`, {})).status, 200);
+});

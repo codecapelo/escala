@@ -29,6 +29,7 @@ try {
     await db.query("GRANT SELECT,INSERT,UPDATE ON escala.registrations,escala.corrections,escala.vacancy_requests TO amil_escala_runtime");
     await db.query("GRANT SELECT,INSERT,DELETE ON escala.schedule_templates TO amil_escala_runtime");
     await db.query("GRANT SELECT,INSERT,UPDATE ON escala.waitlist TO amil_escala_runtime");
+    await db.query("GRANT SELECT,INSERT,UPDATE ON escala.offer_queue_entries TO amil_escala_runtime");
     if (!existing) {
       const url = new URL(process.env.DATABASE_URL);
       url.username = role;

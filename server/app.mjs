@@ -17,6 +17,7 @@ import { reviewRouter } from "./review.mjs";
 import { schedulePdf } from "./pdf.mjs";
 import { createGenerateRouter } from "./generate.mjs";
 import { waitlistRouter } from "./waitlist.mjs";
+import { advanceQueue, refreshOfferQueues, passQueueEntry, releaseRequestedEntry } from "./offer-queue.mjs";
 import { sendMail, resetEmail, mailConfigured } from "./mail.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 import { vacancyRouter, ensureCapacity, cancelVacancyRequests, staffing } from './vacancies.mjs';
@@ -375,6 +376,7 @@ app.get(
   "/api/dashboard",
   route(async (req, res) => {
     const month = monthOf(req);
+    await refreshOfferQueues(req.db, { month });
     const shifts = await Q.shiftsFor(req.db, month, req.user);
     const doctors = await Q.doctorsFor(req.db);
     const offers = await Q.offersFor(req.db, month, req.user);
@@ -675,6 +677,7 @@ app.post(
         target ? [a.doctor_id, target.id] : [a.doctor_id],
         s.date.slice(0, 7),
       );
+      await advanceQueue(req.db, offer, { actor: req.user });
       return offer;
     });
     res.status(201).json({ offer });
@@ -689,7 +692,7 @@ app.post(
       fail(403,'Você só pode assumir plantões para seu próprio cadastro médico.');
     const target = req.user.doctor_id;
     if (!target) fail(400, "Selecione o médico que assumirá o plantão.");
-    await transaction(req.db, async () => {
+    const outcome = await transaction(req.db, async () => {
       const o = (
         await req.db.query(
           "SELECT * FROM escala.offers WHERE id=$1 AND status='open' FOR UPDATE",
@@ -710,6 +713,12 @@ app.post(
         fail(403, "Este repasse foi direcionado a outro médico.");
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
+      if (!o.target_doctor_id) {
+        const current = await advanceQueue(req.db, o);
+        if (!o.queue_public_at && current?.doctor_id !== target)
+          return { denied: true };
+        await req.db.query("UPDATE escala.offer_queue_entries SET status='requested' WHERE offer_id=$1 AND doctor_id=$2", [o.id, target]);
+      }
       const d = await Q.ensureDoctor(req.db, target);
       await Q.ensureNoOverlap(req.db, target, s);
       await req.db.query(
@@ -726,9 +735,30 @@ app.post(
         s.date.slice(0, 7),
       );
     });
+    if (outcome?.denied) fail(409, "Este repasse está reservado para a vez de outro médico da fila. Aguarde sua vez.", "QUEUE_WAIT");
     res.json({ ok: true, status: "pending" });
   }),
 );
+for (const action of ["pass", "skip"])
+  app.post(`/api/offers/:id/queue/${action}`, route(async (req, res) => {
+    if (action === "skip") admin(req);
+    const id = idOf(req);
+    const b = V.z.object({ note: action === "skip" ? V.z.string().trim().min(3).max(1000) : V.z.string().trim().max(1000).optional() }).strict().parse(req.body);
+    const outcome = await transaction(req.db, async () => {
+      const offer = (await req.db.query("SELECT * FROM escala.offers WHERE id=$1 AND status='open' FOR UPDATE", [id])).rows[0];
+      if (!offer || offer.target_doctor_id) fail(409, "Este repasse não tem fila aberta.");
+      const a = await Q.getAssignment(req.db, offer.assignment_id);
+      const s = await Q.getShift(req.db, a.shift_id);
+      await Q.ensureUnlocked(req.db, s.date);
+      const entry = await advanceQueue(req.db, offer);
+      if (!entry) return { denied: true };
+      if (action === "pass" && entry.doctor_id !== req.user.doctor_id) return { denied: true };
+      await passQueueEntry(req.db, offer, entry, req.user, b.note || "Médico passou a vez apenas neste repasse.");
+      return { denied: false };
+    });
+    if (outcome.denied) fail(409, "Você não tem uma vez ativa neste repasse.", "QUEUE_WAIT");
+    res.json({ ok: true });
+  }));
 app.post(
   "/api/offers/:id/approve",
   route(async (req, res) => {
@@ -760,6 +790,7 @@ app.post(
         "UPDATE escala.offers SET status='accepted',to_doctor_id=$1,accepted_by=$2,accepted_at=now(),approved_by=$3,approved_at=now(),decision_note=$4 WHERE id=$5",
         [o.requested_doctor_id, o.requested_by, req.user.id, b.note || null, id],
       );
+      await req.db.query("UPDATE escala.offer_queue_entries SET status='accepted',finished_at=now() WHERE offer_id=$1 AND doctor_id=$2 AND status='requested'", [o.id, o.requested_doctor_id]);
       await Q.audit(
         req.db,
         req.user,
@@ -796,6 +827,7 @@ app.post(
       const s = await Q.getShift(req.db, a.shift_id);
       await Q.ensureUnlocked(req.db, s.date);
       const d = await Q.ensureDoctor(req.db, o.requested_doctor_id).catch(() => ({ name: "Médico" }));
+      await releaseRequestedEntry(req.db, o, req.user, "Pedido recusado pela administração: " + b.note);
       await req.db.query(
         "UPDATE escala.offers SET status='open',requested_doctor_id=NULL,requested_by=NULL,requested_at=NULL,decision_note=$1 WHERE id=$2",
         [b.note, id],
@@ -809,6 +841,7 @@ app.post(
         [a.doctor_id, o.requested_doctor_id],
         s.date.slice(0, 7),
       );
+      await advanceQueue(req.db, { ...o, status: "open" });
     });
     res.json({ ok: true });
   }),
@@ -834,6 +867,7 @@ app.post(
         "UPDATE escala.offers SET status='cancelled',cancelled_at=now() WHERE id=$1",
         [id],
       );
+      await req.db.query("UPDATE escala.offer_queue_entries SET status='cancelled',finished_at=now() WHERE offer_id=$1 AND status IN ('waiting','invited','requested')", [id]);
       await Q.audit(
         req.db,
         req.user,
@@ -868,6 +902,7 @@ app.post(
       const who = (
         await req.db.query("SELECT name FROM escala.doctors WHERE id=$1", [o.requested_doctor_id])
       ).rows[0]?.name || "O médico";
+      await releaseRequestedEntry(req.db, o, req.user, "O solicitante retirou o pedido de repasse.");
       await req.db.query(
         "UPDATE escala.offers SET status='open',requested_doctor_id=NULL,requested_by=NULL,requested_at=NULL WHERE id=$1",
         [id],
@@ -881,6 +916,7 @@ app.post(
         [a.doctor_id, o.requested_doctor_id],
         s.date.slice(0, 7),
       );
+      await advanceQueue(req.db, { ...o, status: "open" });
     });
     res.json({ ok: true });
   }),

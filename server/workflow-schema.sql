@@ -70,3 +70,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS waitlist_one_waiting ON escala.waitlist(shift_
 CREATE INDEX IF NOT EXISTS waitlist_shift ON escala.waitlist(shift_id) WHERE status='waiting';
 -- Explicit administrative priority never changes the original request timestamp.
 ALTER TABLE escala.waitlist ADD COLUMN IF NOT EXISTS priority smallint NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 100);
+-- A frozen, per-offer queue. Passing one offer never removes general availability.
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS queue_initialized_at timestamptz;
+ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS queue_public_at timestamptz;
+CREATE TABLE IF NOT EXISTS escala.offer_queue_entries (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ offer_id uuid NOT NULL REFERENCES escala.offers(id),
+ waitlist_id uuid NOT NULL REFERENCES escala.waitlist(id),
+ doctor_id uuid NOT NULL REFERENCES escala.doctors(id),
+ user_id uuid NOT NULL REFERENCES escala.users(id),
+ position integer NOT NULL CHECK(position>0), priority_snapshot smallint NOT NULL,
+ status text NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting','invited','passed','expired','skipped','requested','accepted','cancelled')),
+ invited_at timestamptz, expires_at timestamptz, finished_at timestamptz, reason text,
+ UNIQUE(offer_id,doctor_id), UNIQUE(offer_id,position)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS offer_queue_one_current ON escala.offer_queue_entries(offer_id) WHERE status IN ('invited','requested');
+CREATE INDEX IF NOT EXISTS offer_queue_deadline ON escala.offer_queue_entries(expires_at) WHERE status='invited';

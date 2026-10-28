@@ -42,6 +42,7 @@ import {
   crmLabel,
 } from "./utils";
 import type { Offer, Doctor, User, Report, Audit, ReportRow } from "./types";
+import OfferQueueStatus from "./OfferQueueStatus";
 export function OffersView({
   offers,
   user,
@@ -55,6 +56,9 @@ export function OffersView({
   onReject,
   onWithdraw,
   onDecline,
+  onPass,
+  onSkip,
+  onQueueRefresh,
   onSchedule,
 }: {
   offers: Offer[];
@@ -69,6 +73,9 @@ export function OffersView({
   onReject: (o: Offer) => void;
   onWithdraw: (o: Offer) => void;
   onDecline: (o: Offer) => void;
+  onPass: (o: Offer) => void;
+  onSkip: (o: Offer) => void;
+  onQueueRefresh: () => void;
   onSchedule: () => void;
 }) {
   const [tab, setTab] = useState<
@@ -241,7 +248,7 @@ export function OffersView({
                     <strong>{o.from_name}</strong>
                   </span>
                 </div>
-                {(o.status === "open" || o.status === "pending") &&
+                {!o.target_doctor_id && (o.status === "open" || o.status === "pending") &&
                   (o.waiting?.length ? (
                     <div className="offer-waiting">
                       <Info size={14} />
@@ -264,6 +271,7 @@ export function OffersView({
                       : `Direcionado a ${o.target_name}`}
                   </div>
                 )}
+                <OfferQueueStatus offer={o} onExpired={onQueueRefresh} />
                 {o.status === "accepted" && o.to_name && (
                   <div className="offer-accepted">
                     <Check size={15} />
@@ -285,6 +293,7 @@ export function OffersView({
                       <span>
                         <strong>{o.requested_name}</strong> pediu para assumir.
                         Aguardando autorização da administração.
+                        {!o.target_doctor_id && o.queue_mode !== "legacy" && " A fila fica parada até a decisão."}
                       </span>
                     </div>
                     <div className="offer-actions">
@@ -329,7 +338,7 @@ export function OffersView({
                 )}
                 {o.status === "open" && (
                   <div className="offer-actions">
-                    {!!user.doctor_id &&
+                    {!!user.doctor_id && o.can_request &&
                       !own &&
                       (!o.target_doctor_id ||
                         o.target_doctor_id === user.doctor_id) && (
@@ -341,6 +350,12 @@ export function OffersView({
                         {locked ? "Mês fechado" : "Pedir para assumir"}
                         <ArrowUpRight size={16} />
                       </button>
+                    )}
+                    {!o.target_doctor_id && o.queue_is_my_turn && (
+                      <button className="button button-secondary button-sm" disabled={locked} onClick={() => onPass(o)}>Passar a vez</button>
+                    )}
+                    {!o.target_doctor_id && canApprove && o.queue_mode === "exclusive" && o.queue_expires_at && (
+                      <button className="button button-ghost button-sm" disabled={locked} onClick={() => onSkip(o)}>Avançar a fila</button>
                     )}
                     {o.target_doctor_id &&
                       o.target_doctor_id === user.doctor_id && (

@@ -85,6 +85,8 @@ export default function App() {
     [rejectOffer, setRejectOffer] = useState<Offer | null>(null),
     [withdrawOffer, setWithdrawOffer] = useState<Offer | null>(null),
     [declineOffer, setDeclineOffer] = useState<Offer | null>(null),
+    [passOffer, setPassOffer] = useState<Offer | null>(null),
+    [skipOffer, setSkipOffer] = useState<Offer | null>(null),
     [day, setDay] = useState<string | null>(null),
     [profile, setProfile] = useState(false),
     [lock, setLock] = useState<boolean | null>(null),
@@ -435,6 +437,9 @@ export default function App() {
                     onReject={setRejectOffer}
                     onWithdraw={setWithdrawOffer}
                     onDecline={setDeclineOffer}
+                    onPass={setPassOffer}
+                    onSkip={setSkipOffer}
+                    onQueueRefresh={refresh}
                     onSchedule={() => navigate("schedule")}
                   />
                 )}{" "}
@@ -661,6 +666,8 @@ export default function App() {
             }}
           />
         )}
+        {passOffer && <Confirm title="Passar a vez neste repasse?" description="A fila seguirá para o próximo médico. Sua disponibilidade para outras ofertas deste turno será mantida." confirmLabel="Passar a vez" onClose={() => setPassOffer(null)} onConfirm={async () => { await post(`/offers/${passOffer.id}/queue/pass`, {}); refresh(); notify("Vez passada. Sua disponibilidade foi preservada."); }} />}
+        {skipOffer && <Confirm title="Avançar a fila deste repasse?" description="A vez atual será encerrada e a fila seguirá para o próximo médico. Registre o motivo da decisão administrativa." reason confirmLabel="Avançar a fila" onClose={() => setSkipOffer(null)} onConfirm={async (note) => { await post(`/offers/${skipOffer.id}/queue/skip`, { note }); refresh(); notify("Fila avançada com motivo registrado no histórico."); }} />}
         {rejectOffer && (
           <Confirm
             title="Recusar este pedido?"
