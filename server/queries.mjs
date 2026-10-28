@@ -141,7 +141,7 @@ export async function offersFor(db, month, user) {
   const { rows } = await db.query(
     `SELECT o.id,o.assignment_id,o.from_doctor_id,fd.name from_name,o.to_doctor_id,td.name to_name,o.status,o.created_at,o.accepted_at,
  o.target_doctor_id,tg.name target_name,
- COALESCE((SELECT json_agg(json_build_object('doctor_id',w.doctor_id,'name',wd.name) ORDER BY w.created_at) FROM escala.waitlist w JOIN escala.doctors wd ON wd.id=w.doctor_id WHERE w.shift_id=s.id AND w.status='waiting' AND wd.active AND w.doctor_id<>o.from_doctor_id AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)),'[]') waiting,
+ COALESCE((SELECT json_agg(json_build_object('doctor_id',w.doctor_id,'name',wd.name) ORDER BY w.priority DESC,w.created_at,w.id) FROM escala.waitlist w JOIN escala.doctors wd ON wd.id=w.doctor_id WHERE w.shift_id=s.id AND w.status='waiting' AND wd.active AND w.doctor_id<>o.from_doctor_id AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)),'[]') waiting,
  o.requested_doctor_id,rd.name requested_name,o.requested_at,o.approved_at,au.name approved_by_name,o.decision_note,
  s.date::text,to_char(s.start_time,'HH24:MI') start_time,to_char(s.end_time,'HH24:MI') end_time,s.period,s.unit,o.note
  FROM escala.offers o JOIN escala.assignments a ON a.id=o.assignment_id JOIN escala.shifts s ON s.id=a.shift_id

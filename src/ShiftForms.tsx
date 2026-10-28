@@ -671,14 +671,15 @@ export function OfferForm({
     shiftId ? `/shifts/${shiftId}/waitlist` : "/health",
     0,
   );
-  const waitingIds = new Set(
-    (shiftId ? waiting.data?.entries : [])?.map((e) => e.doctor_id) || [],
+  const waitingPositions = new Map(
+    (shiftId ? waiting.data?.entries : [])?.map((e, i) => [e.doctor_id, i]) || [],
   );
   const recipients = doctors
     .filter((d) => d.active && d.user_id && d.id !== selfId)
     .sort(
       (a, b) =>
-        Number(waitingIds.has(b.id)) - Number(waitingIds.has(a.id)) ||
+        (waitingPositions.get(a.id) ?? Infinity) -
+          (waitingPositions.get(b.id) ?? Infinity) ||
         a.name.localeCompare(b.name, "pt-BR"),
     );
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -746,7 +747,7 @@ export function OfferForm({
                     <option value="">Escolha o médico</option>
                     {recipients.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {waitingIds.has(d.id)
+                        {waitingPositions.has(d.id)
                           ? `${d.name} · na lista de espera`
                           : d.name}
                       </option>

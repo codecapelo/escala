@@ -1555,3 +1555,30 @@ test("waiting list is open during the shift but closed once it ended", async () 
   await pool.query("UPDATE escala.shifts SET capacity=1 WHERE id=$1", [ended.id]);
   assert.equal((await post(`/shifts/${ended.id}/waitlist`, {}, "b")).body.code, "SHIFT_ENDED");
 });
+
+test("waiting list priority is scoped to an entry, preserves arrival order on ties and applies to offers without exposing other doctors", async () => {
+  const s = await createShift({ capacity: 1, doctor_ids: [f.a.id] });
+  assert.equal((await post(`/shifts/${s.id}/waitlist`, { priority: 100 }, "b")).status, 400, "a doctor cannot choose administrative priority");
+  const b = (await post(`/shifts/${s.id}/waitlist`, {}, "b")).body.entry;
+  const c = (await post(`/shifts/${s.id}/waitlist`, {}, "c")).body.entry;
+  await pool.query("UPDATE escala.waitlist SET created_at='2026-01-01T00:00:00Z' WHERE id=$1", [b.id]);
+  await pool.query("UPDATE escala.waitlist SET created_at='2026-01-02T00:00:00Z',priority=10 WHERE id=$1", [c.id]);
+  const timestamps = (await pool.query("SELECT id,created_at FROM escala.waitlist ORDER BY id")).rows;
+  const list = (await api(`/shifts/${s.id}/waitlist`)).body;
+  assert.deepEqual(list.entries.map((e) => [e.doctor_id, e.position]), [[f.c.id, 1], [f.b.id, 2]]);
+  const own = (await api(`/shifts/${s.id}/waitlist`, { as: "b" })).body;
+  assert.deepEqual(own.entries.map((e) => [e.doctor_id, e.position]), [[f.b.id, 2]]);
+  assert.equal(own.count, 2);
+  const offer = await createOffer(s);
+  const offers = (await api(`/dashboard?month=${month}`, { as: "a" })).body.offers;
+  assert.deepEqual(offers.find((o) => o.id === offer.id).waiting.map((w) => w.doctor_id), [f.c.id, f.b.id]);
+  await pool.query("UPDATE escala.waitlist SET priority=10 WHERE id=$1", [b.id]);
+  const tied = (await api(`/shifts/${s.id}/waitlist`)).body;
+  assert.deepEqual(tied.entries.map((e) => e.doctor_id), [f.b.id, f.c.id]);
+  assert.deepEqual((await pool.query("SELECT id,created_at FROM escala.waitlist ORDER BY id")).rows, timestamps);
+  const another = await createShift({ date: "2099-11-13", capacity: 1, doctor_ids: [f.a.id] });
+  assert.equal((await post(`/shifts/${another.id}/waitlist`, {}, "b")).status, 201);
+  assert.equal((await post(`/shifts/${another.id}/waitlist`, {}, "c")).status, 201);
+  const normal = (await api(`/shifts/${another.id}/waitlist`)).body;
+  assert.deepEqual(normal.entries.map((e) => e.doctor_id), [f.b.id, f.c.id], "priority in one shift must not affect another");
+});

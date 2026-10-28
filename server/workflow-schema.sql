@@ -68,3 +68,5 @@ CREATE TABLE IF NOT EXISTS escala.waitlist (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS waitlist_one_waiting ON escala.waitlist(shift_id,doctor_id) WHERE status='waiting';
 CREATE INDEX IF NOT EXISTS waitlist_shift ON escala.waitlist(shift_id) WHERE status='waiting';
+-- Explicit administrative priority never changes the original request timestamp.
+ALTER TABLE escala.waitlist ADD COLUMN IF NOT EXISTS priority smallint NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 100);
