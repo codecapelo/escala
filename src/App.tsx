@@ -429,6 +429,7 @@ export default function App() {
                     doctors={data.doctors}
                     user={user}
                     locked={data.locked}
+                    approvalRequired={data.offer_approval_required ?? true}
                     month={month}
                     onMonth={changeMonth}
                     onAccept={setAcceptOffer}
@@ -584,6 +585,7 @@ export default function App() {
         {offerAssignment && (
           <OfferForm
             assignmentId={offerAssignment}
+            approvalRequired={data?.offer_approval_required ?? true}
             shiftId={
               data?.shifts.find((s) =>
                 s.assignments.some((a) => a.id === offerAssignment),
@@ -607,9 +609,9 @@ export default function App() {
             offer={acceptOffer}
             user={user}
             onClose={() => setAcceptOffer(null)}
-            onSaved={() => {
+            onSaved={(status) => {
               refresh();
-              notify("Pedido enviado. Aguardando a autorização da administração.");
+              notify(status === "accepted" ? "Repasse concluído. O plantão já está na sua escala." : "Pedido enviado. Aguardando a autorização da administração.");
             }}
           />
         )}

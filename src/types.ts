@@ -46,6 +46,7 @@ export interface Shift {
   assignments: Assignment[];
 }
 export interface Offer {
+  requires_approval?: boolean;
   id: string;
   assignment_id: string;
   from_doctor_id: string;
@@ -89,6 +90,7 @@ export interface Audit {
   metadata: Record<string, unknown>;
 }
 export interface Dashboard {
+  offer_approval_required?: boolean;
   shifts: Shift[];
   doctors: Doctor[];
   offers: Offer[];

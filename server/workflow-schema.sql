@@ -42,6 +42,8 @@ ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_doctor_id uuid REFE
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_by uuid REFERENCES escala.users(id);
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS requested_at timestamptz;
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES escala.users(id);
+-- Approval policy belongs to the shift month, with existing behavior as default.
+ALTER TABLE escala.months ADD COLUMN IF NOT EXISTS offer_approval_required boolean NOT NULL DEFAULT true;
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS approved_at timestamptz;
 ALTER TABLE escala.offers ADD COLUMN IF NOT EXISTS decision_note text;
 ALTER TABLE escala.offers DROP CONSTRAINT IF EXISTS offers_status_check;

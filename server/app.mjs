@@ -18,6 +18,7 @@ import { schedulePdf } from "./pdf.mjs";
 import { createGenerateRouter } from "./generate.mjs";
 import { waitlistRouter } from "./waitlist.mjs";
 import { advanceQueue, refreshOfferQueues, passQueueEntry, releaseRequestedEntry } from "./offer-queue.mjs";
+import { completeTransfer } from "./offer-transfers.mjs";
 import { sendMail, resetEmail, mailConfigured } from "./mail.mjs";
 import { createWorkflowRouters, registrationFor } from "./workflows.mjs";
 import { vacancyRouter, ensureCapacity, cancelVacancyRequests, staffing } from './vacancies.mjs';
@@ -392,6 +393,7 @@ app.get(
       offers,
       audit: await Q.auditFor(req.db, month, req.user),
       locked: await Q.lockedFor(req.db, month),
+      offer_approval_required: await Q.offerApprovalRequired(req.db, month),
       user: req.user,
       stats: {
         shifts: visible.reduce(
@@ -719,6 +721,10 @@ app.post(
           return { denied: true };
         await req.db.query("UPDATE escala.offer_queue_entries SET status='requested' WHERE offer_id=$1 AND doctor_id=$2", [o.id, target]);
       }
+      if (!(await Q.offerApprovalRequired(req.db, s.date.slice(0, 7)))) {
+        await completeTransfer(req.db, o, req.user);
+        return { status: "accepted" };
+      }
       const d = await Q.ensureDoctor(req.db, target);
       await Q.ensureNoOverlap(req.db, target, s);
       await req.db.query(
@@ -734,9 +740,10 @@ app.post(
         [a.doctor_id, target],
         s.date.slice(0, 7),
       );
+      return { status: "pending" };
     });
     if (outcome?.denied) fail(409, "Este repasse está reservado para a vez de outro médico da fila. Aguarde sua vez.", "QUEUE_WAIT");
-    res.json({ ok: true, status: "pending" });
+    res.json({ ok: true, status: outcome.status });
   }),
 );
 for (const action of ["pass", "skip"])
@@ -775,36 +782,7 @@ app.post(
       if (!o) fail(409, "Este repasse não está aguardando aprovação.");
       if (o.requested_by === req.user.id && req.user.role !== "owner")
         fail(403, "Outro administrador precisa aprovar o seu pedido de repasse.");
-      const a = await Q.getAssignment(req.db, o.assignment_id);
-      if (a.doctor_id !== o.from_doctor_id)
-        fail(409, "O responsável por este plantão já mudou. Recuse o pedido.");
-      const s = await Q.getShift(req.db, a.shift_id);
-      await Q.ensureUnlocked(req.db, s.date);
-      const d = await Q.ensureDoctor(req.db, o.requested_doctor_id);
-      await Q.ensureNoOverlap(req.db, o.requested_doctor_id, s);
-      await req.db.query(
-        "UPDATE escala.assignments SET doctor_id=$1 WHERE id=$2",
-        [o.requested_doctor_id, a.id],
-      );
-      await req.db.query(
-        "UPDATE escala.offers SET status='accepted',to_doctor_id=$1,accepted_by=$2,accepted_at=now(),approved_by=$3,approved_at=now(),decision_note=$4 WHERE id=$5",
-        [o.requested_doctor_id, o.requested_by, req.user.id, b.note || null, id],
-      );
-      await req.db.query("UPDATE escala.offer_queue_entries SET status='accepted',finished_at=now() WHERE offer_id=$1 AND doctor_id=$2 AND status='requested'", [o.id, o.requested_doctor_id]);
-      await Q.audit(
-        req.db,
-        req.user,
-        "offer_approved",
-        `${req.user.name} aprovou o repasse: ${d.name} assumiu o plantão de ${a.doctor_name} em ${s.date.split("-").reverse().join("/")} ${s.start_time}–${s.end_time}.`,
-        {
-          offer_id: id, assignment_id: a.id, shift_id: s.id,
-          from_doctor_id: a.doctor_id, from_name: a.doctor_name,
-          to_doctor_id: o.requested_doctor_id, to_name: d.name,
-          requested_by: o.requested_by, approved_by: req.user.id, note: b.note || null,
-        },
-        [a.doctor_id, o.requested_doctor_id],
-        s.date.slice(0, 7),
-      );
+      await completeTransfer(req.db, o, req.user, { approval: true, note: b.note || null });
     });
     res.json({ ok: true });
   }),

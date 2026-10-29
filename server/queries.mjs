@@ -140,7 +140,7 @@ export async function doctorsFor(db) {
 export async function offersFor(db, month, user) {
   const { rows } = await db.query(
     `SELECT o.id,o.assignment_id,o.from_doctor_id,fd.name from_name,o.to_doctor_id,td.name to_name,o.status,o.created_at,o.accepted_at,
- o.target_doctor_id,tg.name target_name,
+ o.target_doctor_id,tg.name target_name,COALESCE(m.offer_approval_required,true) requires_approval,
  CASE WHEN o.target_doctor_id IS NOT NULL THEN '[]'::json
  WHEN o.queue_initialized_at IS NOT NULL THEN COALESCE((SELECT json_agg(json_build_object('doctor_id',qe.doctor_id,'name',qd.name) ORDER BY qe.position) FROM escala.offer_queue_entries qe JOIN escala.doctors qd ON qd.id=qe.doctor_id WHERE qe.offer_id=o.id AND qe.status IN ('waiting','invited','requested')),'[]'::json)
  ELSE COALESCE((SELECT json_agg(json_build_object('doctor_id',w.doctor_id,'name',wd.name) ORDER BY w.priority DESC,w.created_at,w.id) FROM escala.waitlist w JOIN escala.doctors wd ON wd.id=w.doctor_id WHERE w.shift_id=s.id AND w.status='waiting' AND wd.active AND w.doctor_id<>o.from_doctor_id AND NOT EXISTS(SELECT 1 FROM escala.assignments x WHERE x.shift_id=w.shift_id AND x.doctor_id=w.doctor_id AND x.removed_at IS NULL)),'[]'::json) END waiting,
@@ -158,6 +158,7 @@ export async function offersFor(db, month, user) {
  LEFT JOIN escala.doctors tg ON tg.id=o.target_doctor_id LEFT JOIN escala.doctors rd ON rd.id=o.requested_doctor_id LEFT JOIN escala.users au ON au.id=o.approved_by
  LEFT JOIN escala.offer_queue_entries cq ON cq.offer_id=o.id AND cq.status='invited'
  LEFT JOIN escala.doctors qcd ON qcd.id=cq.doctor_id
+ LEFT JOIN escala.months m ON m.month=to_char(s.date,'YYYY-MM')
  WHERE s.date>=($1||'-01')::date AND s.date<(($1||'-01')::date+interval '1 month')
  AND (o.status NOT IN ('open','pending') OR (s.cancelled_at IS NULL AND a.removed_at IS NULL))
  AND ($2::boolean OR (o.status='open' AND (o.target_doctor_id IS NULL OR o.target_doctor_id=$3)) OR o.from_doctor_id=$3 OR o.to_doctor_id=$3 OR o.requested_doctor_id=$3) ORDER BY o.created_at DESC`,
@@ -185,6 +186,9 @@ export async function lockedFor(db, month) {
     (await db.query("SELECT locked FROM escala.months WHERE month=$1", [month]))
       .rows[0]?.locked || false
   );
+}
+export async function offerApprovalRequired(db, month) {
+  return (await db.query("SELECT offer_approval_required FROM escala.months WHERE month=$1", [month])).rows[0]?.offer_approval_required ?? true;
 }
 export async function reportFor(db, month, user) {
   const shifts = await shiftsFor(db, month);

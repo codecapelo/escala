@@ -60,7 +60,7 @@ export default function OfferQueueStatus({
       <div>
         <strong>
           {offer.queue_is_my_turn
-            ? "Sua vez de pedir este repasse"
+            ? offer.requires_approval === false ? "Sua vez de assumir este repasse" : "Sua vez de pedir este repasse"
             : offer.queue_current_name
               ? `Vez de ${offer.queue_current_name}`
               : "Aguardando a vez de outro médico"}

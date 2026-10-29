@@ -33,7 +33,15 @@ e conflitos de horário tornam o médico inelegível. Esses casos passam para o 
 Passar a vez não altera a inscrição geral de disponibilidade, só aquela oferta.
 A administração pode avançar a fila com motivo obrigatório e auditado.
 
-Aceitar deixa o repasse pendente de autorização administrativa e suspende a fila.
+O mês define se o aceite precisa de aprovação (`months.offer_approval_required`,
+com padrão `true`). Em novembro/2026, por determinação do proprietário em 29/10,
+a opção fica `false`: o aceite transfere o plantão imediatamente ao médico da vez
+ou ao destinatário do repasse direcionado. A verificação de conta ativa, vínculo,
+horário, mês aberto e titular original continua obrigatória. O registro distingue
+o aceite direto (`offer_accepted`, sem aprovador) de uma aprovação administrativa
+de um pedido antigo (`offer_approved`). Outros meses mantêm o comportamento anterior.
+
+Quando o mês exige aprovação, aceitar deixa o repasse pendente e suspende a fila.
 O plantão continua com o titular até a aprovação. Retirada do pedido ou recusa da
 administração encerra a vez daquele solicitante e chama o próximo. A fila esgotada
 libera a oferta para a equipe. Cancelar encerra a oferta e permite criar outra,
@@ -41,7 +49,9 @@ inclusive direcionada para agilizar. Meses fechados bloqueiam alterações e ava
 ao reabrir, os prazos são reavaliados.
 
 A migração é aditiva. Repasses já pendentes de autorização continuam com o solicitante
-e o estado que tinham. Repasses abertos existentes iniciam a fila na ativação desta
+e o estado que tinham até serem decididos. A liberação expressa dos pedidos de
+novembro em 29/10 é uma operação separada, com as mesmas verificações da rota de
+aprovação e uma auditoria por transferência. Repasses abertos existentes iniciam a fila na ativação desta
 regra, com prazo novo. Nenhuma alocação ou inscrição de disponibilidade é modificada
 pela migração. O runtime recebe SELECT/INSERT/UPDATE na nova tabela, sem DDL e sem
 permissão de editar a auditoria.

@@ -48,6 +48,7 @@ export function OffersView({
   user,
   doctors,
   locked,
+  approvalRequired = true,
   month,
   onMonth,
   onAccept,
@@ -65,6 +66,7 @@ export function OffersView({
   user: User;
   doctors: Doctor[];
   locked: boolean;
+  approvalRequired?: boolean;
   month: string;
   onMonth: (m: string) => void;
   onAccept: (o: Offer) => void;
@@ -137,12 +139,12 @@ export function OffersView({
         >
           Disponíveis <span>{open.length}</span>
         </button>
-        <button
+        {(approvalRequired || pendingCount > 0) && <button
           className={tab === "pending" ? "active" : ""}
           onClick={() => setTab("pending")}
         >
           Em aprovação <span>{pendingCount}</span>
-        </button>
+        </button>}
         {user.doctor_id && (
           <button
             className={tab === "mine" ? "active" : ""}
@@ -347,7 +349,7 @@ export function OffersView({
                         disabled={locked}
                         onClick={() => onAccept(o)}
                       >
-                        {locked ? "Mês fechado" : "Pedir para assumir"}
+                        {locked ? "Mês fechado" : o.requires_approval === false ? "Assumir plantão" : "Pedir para assumir"}
                         <ArrowUpRight size={16} />
                       </button>
                     )}
@@ -389,8 +391,7 @@ export function OffersView({
         </div>
       )}
       <p className="privacy-note">
-        <ShieldCheck size={14} />O plantão permanece com o médico de origem até
-        a autorização da administração.
+        <ShieldCheck size={14} />{approvalRequired ? "O plantão permanece com o médico de origem até a autorização da administração." : "Ao aceitar, o plantão entra na sua escala imediatamente. A transferência fica registrada no histórico."}
       </p>
     </>
   );

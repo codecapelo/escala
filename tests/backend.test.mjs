@@ -1610,6 +1610,85 @@ test("automatic queue response windows cover future, same-day and ongoing shifts
   assert.equal(responseWindowMs(s("2026-11-01", "06:00"), now), 300000);
 });
 
+async function disableOfferApproval(m = month) {
+  await pool.query("INSERT INTO escala.months(month,offer_approval_required) VALUES($1,false) ON CONFLICT(month) DO UPDATE SET offer_approval_required=false", [m]);
+}
+
+test("November direct acceptance transfers immediately with recipient identity, timestamp and immutable audit", async () => {
+  await disableOfferApproval('2026-11');
+  const s = await createShift({ date: '2026-11-12', doctor_ids: [f.a.id] });
+  const offer = (await post('/offers', { assignment_id: s.assignments[0].id, target_doctor_id: f.b.id }, 'a')).body.offer;
+  assert.equal((await api('/dashboard?month=2026-11', { as: 'b' })).body.offers[0].requires_approval, false);
+  assert.equal((await api('/dashboard?month=2026-11')).body.offer_approval_required, false);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'c')).status, 403);
+  const accepted = await post(`/offers/${offer.id}/accept`, {}, 'b');
+  assert.deepEqual(accepted.body, { ok: true, status: 'accepted' });
+  const saved = await row('SELECT * FROM escala.offers WHERE id=$1', [offer.id]);
+  assert.equal(saved.status, 'accepted');assert.equal(saved.accepted_by, f.b.user.id);
+  assert.equal(saved.to_doctor_id, f.b.id);assert.equal(saved.from_doctor_id, f.a.id);
+  assert(saved.accepted_at);assert.equal(saved.approved_by, null);assert.equal(saved.approved_at, null);
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1', [s.assignments[0].id])).doctor_id, f.b.id);
+  const audit = await row("SELECT * FROM escala.audit WHERE action='offer_accepted'");
+  assert.equal(audit.actor_id, f.b.user.id);assert.equal(audit.metadata.from_doctor_id, f.a.id);assert.equal(audit.metadata.to_doctor_id, f.b.id);assert.equal(audit.metadata.requires_approval, false);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'b')).status, 409);
+  assert.equal((await post(`/offers/${offer.id}/approve`, {}, 'owner')).status, 409);
+  assert.equal((await row("SELECT count(*)::int n FROM escala.audit WHERE action='offer_approved'")).n, 0);
+  await assert.rejects(pool.query("UPDATE escala.audit SET description='tamper' WHERE id=$1", [audit.id]), /append-only/);
+});
+
+test("direct acceptance preserves the automatic queue's priority and general availability", async () => {
+  await disableOfferApproval();
+  const { s, offer } = await queueFixture({ priority: true });
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'b')).body.code, 'QUEUE_WAIT');
+  assert.equal((await post(`/offers/${offer.id}/queue/pass`, {}, 'c')).status, 200);
+  assert.equal((await post(`/offers/${offer.id}/accept`, {}, 'b')).body.status, 'accepted');
+  assert.equal((await row("SELECT status FROM escala.offer_queue_entries WHERE offer_id=$1 AND doctor_id=$2", [offer.id, f.b.id])).status, 'accepted');
+  assert.equal((await row("SELECT status FROM escala.waitlist WHERE shift_id=$1 AND doctor_id=$2", [s.id, f.c.id])).status, 'waiting');
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1', [s.assignments[0].id])).doctor_id, f.b.id);
+  assert.equal((await queueOffer(offer.id, 'b')).can_request, false);
+});
+
+test("competing direct acceptances commit exactly one transfer and one acceptance audit", async () => {
+  await disableOfferApproval();const s = await createShift({ doctor_ids: [f.a.id] });const offer = await createOffer(s);
+  const results = await Promise.all(['b','c'].map(as => post(`/offers/${offer.id}/accept`, {}, as)));
+  assert.deepEqual(results.map(r=>r.status).sort(), [200,409]);
+  assert.equal((await row("SELECT count(*)::int n FROM escala.audit WHERE action='offer_accepted'")).n, 1);
+  assert.equal((await row("SELECT status FROM escala.offers WHERE id=$1", [offer.id])).status, 'accepted');
+});
+
+test("direct acceptance still blocks overlaps, impersonation and closed months without changing the holder", async () => {
+  await disableOfferApproval();
+  const s=await createShift({doctor_ids:[f.a.id]});const offer=(await post('/offers',{assignment_id:s.assignments[0].id,target_doctor_id:f.b.id},'a')).body.offer;
+  await createShift({start_time:'09:00',end_time:'13:00',doctor_ids:[f.b.id]});
+  assert.equal((await post(`/offers/${offer.id}/accept`,{},'b')).body.code,'OVERLAP');
+  assert.equal((await post(`/offers/${offer.id}/accept`,{doctor_id:f.b.id},'c')).status,403);
+  await pool.query("UPDATE escala.months SET locked=true WHERE month=$1",[month]);
+  assert.equal((await post(`/offers/${offer.id}/accept`,{},'b')).body.code,'MONTH_LOCKED');
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1',[s.assignments[0].id])).doctor_id,f.a.id);
+  assert.equal((await row('SELECT status FROM escala.offers WHERE id=$1',[offer.id])).status,'open');
+  assert.equal((await row("SELECT count(*)::int n FROM escala.audit WHERE action='offer_accepted'")).n,0);
+});
+
+test("monthly direct-acceptance policy does not remove approval from other months", async () => {
+  await disableOfferApproval('2026-11');const s=await createShift({doctor_ids:[f.a.id]});const offer=await createOffer(s);
+  assert.equal((await queueOffer(offer.id)).requires_approval,true);
+  assert.equal((await api(`/dashboard?month=${month}`)).body.offer_approval_required,true);
+  assert.equal((await post(`/offers/${offer.id}/accept`,{},'b')).body.status,'pending');
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1',[s.assignments[0].id])).doctor_id,f.a.id);
+});
+
+test("existing pending requests can be approved after switching the monthly policy; stale recipient accounts are blocked", async () => {
+  const s=await createShift({doctor_ids:[f.a.id]});const offer=await createOffer(s);
+  await post(`/offers/${offer.id}/accept`,{},'b');await disableOfferApproval();
+  await pool.query('UPDATE escala.users SET active=false WHERE id=$1',[f.b.user.id]);
+  assert.equal((await post(`/offers/${offer.id}/approve`,{},'owner')).body.code,'RECIPIENT_UNAVAILABLE');
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1',[s.assignments[0].id])).doctor_id,f.a.id);
+  await pool.query('UPDATE escala.users SET active=true WHERE id=$1',[f.b.user.id]);
+  assert.equal((await post(`/offers/${offer.id}/approve`,{},'owner')).status,200);
+  assert.equal((await row('SELECT status FROM escala.offers WHERE id=$1',[offer.id])).status,'accepted');
+  assert.equal((await row('SELECT doctor_id FROM escala.assignments WHERE id=$1',[s.assignments[0].id])).doctor_id,f.b.id);
+});
+
 test("automatic queue snapshots priority and blocks anybody outside the current turn without exposing names", async () => {
   const { s, offer } = await queueFixture({ priority: true });
   const own = await queueOffer(offer.id, "c");
