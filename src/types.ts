@@ -46,6 +46,7 @@ export interface Shift {
   assignments: Assignment[];
 }
 export interface Offer {
+  requires_approval?: boolean;
   id: string;
   assignment_id: string;
   from_doctor_id: string;
@@ -60,6 +61,13 @@ export interface Offer {
   waiting?: { doctor_id: string; name: string }[];
   waiting_count?: number;
   i_am_waiting?: boolean;
+  queue_mode?: "directed" | "exclusive" | "public" | "legacy";
+  queue_current_name?: string | null;
+  queue_expires_at?: string | null;
+  queue_server_now?: string;
+  queue_is_my_turn?: boolean;
+  queue_my_position?: number | null;
+  can_request?: boolean;
   requested_doctor_id?: string | null;
   requested_name?: string | null;
   requested_at?: string | null;
@@ -82,6 +90,7 @@ export interface Audit {
   metadata: Record<string, unknown>;
 }
 export interface Dashboard {
+  offer_approval_required?: boolean;
   shifts: Shift[];
   doctors: Doctor[];
   offers: Offer[];

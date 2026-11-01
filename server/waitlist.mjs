@@ -19,7 +19,7 @@ export function waitlistRouter({ admin }) {
       const entries = (
         await req.db.query(
           `SELECT w.id,w.doctor_id,d.name doctor_name,w.note,w.created_at FROM escala.waitlist w
- JOIN escala.doctors d ON d.id=w.doctor_id WHERE w.shift_id=$1 AND ${WAITING} ORDER BY w.created_at,w.id`,
+ JOIN escala.doctors d ON d.id=w.doctor_id WHERE w.shift_id=$1 AND ${WAITING} ORDER BY w.priority DESC,w.created_at,w.id`,
           [id],
         )
       ).rows.map((e, i) => ({ ...e, position: i + 1 }));

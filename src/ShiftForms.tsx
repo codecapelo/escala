@@ -649,6 +649,7 @@ export function ShiftDetail({
 }
 export function OfferForm({
   assignmentId,
+  approvalRequired = true,
   shiftId,
   doctors,
   selfId,
@@ -656,6 +657,7 @@ export function OfferForm({
   onSaved,
 }: {
   assignmentId: string;
+  approvalRequired?: boolean;
   shiftId: string | null;
   doctors: Doctor[];
   selfId: string | null;
@@ -671,14 +673,15 @@ export function OfferForm({
     shiftId ? `/shifts/${shiftId}/waitlist` : "/health",
     0,
   );
-  const waitingIds = new Set(
-    (shiftId ? waiting.data?.entries : [])?.map((e) => e.doctor_id) || [],
+  const waitingPositions = new Map(
+    (shiftId ? waiting.data?.entries : [])?.map((e, i) => [e.doctor_id, i]) || [],
   );
   const recipients = doctors
     .filter((d) => d.active && d.user_id && d.id !== selfId)
     .sort(
       (a, b) =>
-        Number(waitingIds.has(b.id)) - Number(waitingIds.has(a.id)) ||
+        (waitingPositions.get(a.id) ?? Infinity) -
+          (waitingPositions.get(b.id) ?? Infinity) ||
         a.name.localeCompare(b.name, "pt-BR"),
     );
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -746,7 +749,7 @@ export function OfferForm({
                     <option value="">Escolha o médico</option>
                     {recipients.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {waitingIds.has(d.id)
+                        {waitingPositions.has(d.id)
                           ? `${d.name} · na lista de espera`
                           : d.name}
                       </option>
@@ -759,9 +762,7 @@ export function OfferForm({
           <div className="notice">
             <Info size={18} />
             <span>
-              O plantão continua sob sua responsabilidade até outro médico
-              assumir e um administrador autorizar. Vale também para plantões
-              que já começaram.
+              {approvalRequired ? "O plantão continua sob sua responsabilidade até outro médico assumir e um administrador autorizar." : "O plantão continua sob sua responsabilidade até outro médico aceitar. No aceite, a transferência é concluída sem aprovação administrativa."} Vale também para plantões que já começaram.
             </span>
           </div>
           <Field label="Mensagem (opcional)">
@@ -789,8 +790,9 @@ export function OfferForm({
     </Modal>
   );
 }
-export function AcceptOffer({offer,user,onClose,onSaved}:{offer:Offer;user:User;onClose:()=>void;onSaved:()=>void}){
+export function AcceptOffer({offer,user,onClose,onSaved}:{offer:Offer;user:User;onClose:()=>void;onSaved:(status: "pending" | "accepted")=>void}){
  const[busy,setBusy]=useState(false),[error,setError]=useState("");
- async function submit(e:FormEvent){e.preventDefault();setBusy(true);try{await post(`/offers/${offer.id}/accept`,{});onSaved();onClose();}catch(e){setError(message(e));setBusy(false);}}
- return <Modal title="Pedir para assumir este plantão?" subtitle="Confira os detalhes antes de confirmar." onClose={onClose}><form onSubmit={submit}><div className="modal-body"><div className="accept-summary"><PeriodBadge period={offer.period}/><h3>{dayLabel(offer.date,{weekday:"long",day:"numeric",month:"long"})}</h3><p>{offer.start_time} às {offer.end_time} · {offer.unit}</p><span>Repasse de {offer.from_name}</span></div><div className="workflow-self-recipient"><Avatar name={user.name} small/><div><strong>Você pedirá este plantão</strong><span>{user.name}</span></div></div><p className="confirm-description">Seu pedido ficará pendente até um administrador autorizar. O plantão continua com o médico de origem até a autorização, que verifica conflitos de horário. Quem autorizou fica registrado no histórico.</p>{!user.doctor_id&&<ErrorBox>Seu acesso precisa estar vinculado a um cadastro médico para assumir um plantão.</ErrorBox>}{error&&<ErrorBox>{error}</ErrorBox>}</div><div className="modal-footer"><button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>Voltar</button><Submit busy={busy} disabled={!user.doctor_id||user.doctor_id===offer.from_doctor_id}>Pedir para assumir</Submit></div></form></Modal>;
+ const approvalRequired = offer.requires_approval !== false;
+ async function submit(e:FormEvent){e.preventDefault();setBusy(true);try{const result=await post<{status:"pending"|"accepted"}>(`/offers/${offer.id}/accept`,{});onSaved(result.status);onClose();}catch(e){setError(message(e));setBusy(false);}}
+ return <Modal title={approvalRequired ? "Pedir para assumir este plantão?" : "Assumir este plantão?"} subtitle="Confira os detalhes antes de confirmar." onClose={onClose}><form onSubmit={submit}><div className="modal-body"><div className="accept-summary"><PeriodBadge period={offer.period}/><h3>{dayLabel(offer.date,{weekday:"long",day:"numeric",month:"long"})}</h3><p>{offer.start_time} às {offer.end_time} · {offer.unit}</p><span>Repasse de {offer.from_name}</span></div><div className="workflow-self-recipient"><Avatar name={user.name} small/><div><strong>{approvalRequired ? "Você pedirá este plantão" : "Você assumirá este plantão"}</strong><span>{user.name}</span></div></div><p className="confirm-description">{approvalRequired ? "Seu pedido ficará pendente até um administrador autorizar. O plantão continua com o médico de origem até a autorização, que verifica conflitos de horário. Quem autorizou fica registrado no histórico." : "Ao confirmar, o plantão sai da escala do médico de origem e entra na sua imediatamente, sem aprovação administrativa. O sistema confere conflitos de horário e registra quem passou, quem assumiu e quando."}</p>{!user.doctor_id&&<ErrorBox>Seu acesso precisa estar vinculado a um cadastro médico para assumir um plantão.</ErrorBox>}{error&&<ErrorBox>{error}</ErrorBox>}</div><div className="modal-footer"><button type="button" className="button button-secondary" onClick={onClose} disabled={busy}>Voltar</button><Submit busy={busy} disabled={!user.doctor_id||user.doctor_id===offer.from_doctor_id}>{approvalRequired ? "Pedir para assumir" : "Confirmar e assumir"}</Submit></div></form></Modal>;
 }
