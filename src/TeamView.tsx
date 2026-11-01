@@ -339,7 +339,7 @@ export default function TeamView({
               <span className="count-badge">{team.users.length} usuários</span>
             </div>
             <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table access-table">
                 <thead>
                   <tr>
                     <th>Usuário</th>
@@ -355,7 +355,7 @@ export default function TeamView({
                 <tbody>
                   {team.users.map((u) => (
                     <tr key={u.id}>
-                      <td>
+                      <td data-primary>
                         <div className="table-person">
                           <Avatar name={u.name} small />
                           <span>
@@ -366,7 +366,7 @@ export default function TeamView({
                           </span>
                         </div>
                       </td>
-                      <td>
+                      <td data-label="Permissão">
                         <span className={`role-badge role-${u.role}`}>
                           {u.role === "owner" ? (
                             <LockKeyhole size={12} />
@@ -376,17 +376,17 @@ export default function TeamView({
                           {roleLabels[u.role]}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Médico vinculado">
                         {doctors.find((d) => d.id === u.doctor_id)?.name || "—"}
                       </td>
-                      <td>
+                      <td data-label="Gestão de escala">
                         <SchedulePermission
                           user={u}
                           onChanged={onChanged}
                           notify={notify}
                         />
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <span
                           className={`status-pill ${u.active !== false ? "status-success" : "status-muted"}`}
                         >
@@ -400,7 +400,7 @@ export default function TeamView({
                               : "Inativo"}
                         </span>
                       </td>
-                      <td>
+                      <td data-actions>
                         <div className="table-actions">
                           {owner &&
                             isApproved(u) &&
@@ -497,7 +497,7 @@ export default function TeamView({
               />
             ) : (
               <div className="table-scroll">
-                <table className="data-table">
+                <table className="data-table access-table">
                   <thead>
                     <tr>
                       <th>Pessoa convidada</th>
@@ -520,7 +520,7 @@ export default function TeamView({
                             : "Pendente";
                       return (
                         <tr key={i.id}>
-                          <td>
+                          <td data-primary>
                             <div className="table-person">
                               <span className="invite-avatar">
                                 <Mail size={17} />
@@ -531,13 +531,15 @@ export default function TeamView({
                               </span>
                             </div>
                           </td>
-                          <td>
+                          <td data-label="Permissão">
                             <span className="role-badge">
                               {roleLabels[i.role]}
                             </span>
                           </td>
-                          <td>{dayLabel(i.expires_at.slice(0, 10))}</td>
-                          <td>
+                          <td data-label="Validade">
+                            {dayLabel(i.expires_at.slice(0, 10))}
+                          </td>
+                          <td data-label="Status">
                             <span
                               className={`status-pill ${status === "Pendente" ? "status-warm" : status === "Aceito" ? "status-success" : "status-muted"}`}
                             >
@@ -545,7 +547,7 @@ export default function TeamView({
                               {status}
                             </span>
                           </td>
-                          <td>
+                          <td data-actions>
                             {status === "Pendente" &&
                               (owner || i.role === "doctor") && (
                                 <button

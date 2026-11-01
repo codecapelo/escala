@@ -185,3 +185,82 @@
   padding: 6px 10px;
   margin: 6px 0;
 }
+/* Access table: one card per person on phones instead of a sideways-scrolling table. */
+@media (max-width: 720px) {
+  .access-table,
+  .access-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .access-table thead {
+    display: none;
+  }
+  .access-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 12px;
+    margin: 0 0 12px;
+    padding: 14px;
+    border: 1px solid #e3e9da;
+    border-radius: 14px;
+    background: #fffefa;
+  }
+  .access-table td {
+    display: block;
+    grid-column: 1 / -1;
+    min-width: 0;
+    padding: 8px 0;
+    border: 0;
+    border-top: 1px solid #eef1e8;
+    font-size: 13px;
+    white-space: normal;
+  }
+  .access-table td[data-primary] {
+    padding-top: 0;
+    border-top: 0;
+  }
+  .access-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #8a9a7e;
+  }
+  .access-table td[data-label="Permissão"] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .access-table td[data-label="Status"] {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .access-table .table-person {
+    align-items: flex-start;
+  }
+  .access-table .table-person > span {
+    min-width: 0;
+  }
+  .access-table .table-person strong,
+  .access-table .table-person small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .access-table td[data-actions] {
+    padding-bottom: 0;
+  }
+  .access-table .table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .access-table td[data-actions]:has(.table-actions:empty) {
+    display: none;
+  }
+  .table-scroll:has(.access-table) {
+    overflow-x: visible;
+  }
+}
