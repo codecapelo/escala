@@ -16,6 +16,7 @@ import {
   X,
   LockKeyhole,
   KeyRound,
+  ChevronDown,
 } from "lucide-react";
 import {
   Avatar,
@@ -63,6 +64,9 @@ export default function TeamView({
       "doctors" | "access" | "review" | "registrations"
     >("doctors"),
     [search, setSearch] = useState(""),
+    [userSearch, setUserSearch] = useState(""),
+    [showAllUsers, setShowAllUsers] = useState(false),
+    [openRows, setOpenRows] = useState<Set<string>>(new Set()),
     [showInactive, setShowInactive] = useState(false),
     [editDoctor, setEditDoctor] = useState<Doctor | null | undefined>(
       undefined,
@@ -94,6 +98,21 @@ export default function TeamView({
         .includes(search.toLocaleLowerCase()),
   );
   const owner = user.role === "owner";
+  const fold = (v: string) =>
+    v.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+  const filteredUsers = (team?.users || []).filter((u) => {
+    const q = fold(userSearch.trim());
+    return (
+      !q ||
+      fold(
+        `${u.name} ${u.email} ${doctors.find((d) => d.id === u.doctor_id)?.name || ""}`,
+      ).includes(q)
+    );
+  });
+  const COMPACT = 12;
+  const searching = userSearch.trim().length > 0;
+  const shownUsers =
+    showAllUsers || searching ? filteredUsers : filteredUsers.slice(0, COMPACT);
   return (
     <>
       <div className="page-heading">
@@ -336,7 +355,23 @@ export default function TeamView({
                 <h2>Acessos ao portal</h2>
                 <p>Cada pessoa com a permissão certa.</p>
               </div>
-              <span className="count-badge">{team.users.length} usuários</span>
+              <span className="count-badge">
+                {filteredUsers.length === team.users.length
+                  ? `${team.users.length} usuários`
+                  : `${filteredUsers.length} de ${team.users.length}`}
+              </span>
+            </div>
+            <div className="access-search input-icon">
+              <Search size={17} />
+              <input
+                aria-label="Buscar pessoa com acesso"
+                placeholder="Buscar por nome, e-mail ou médico"
+                value={userSearch}
+                onChange={(e) => {
+                  setUserSearch(e.target.value);
+                  setOpenRows(new Set());
+                }}
+              />
             </div>
             <div className="table-scroll">
               <table className="data-table access-table">
@@ -353,9 +388,37 @@ export default function TeamView({
                   </tr>
                 </thead>
                 <tbody>
-                  {team.users.map((u) => (
-                    <tr key={u.id}>
+                  {shownUsers.map((u) => (
+                    <tr
+                      key={u.id}
+                      className={openRows.has(u.id) ? "is-open" : ""}
+                    >
                       <td data-primary>
+                        <button
+                          type="button"
+                          className="row-toggle"
+                          aria-expanded={openRows.has(u.id)}
+                          aria-label={`${openRows.has(u.id) ? "Recolher" : "Ver detalhes de"} ${u.name}`}
+                          onClick={() =>
+                            setOpenRows((cur) => {
+                              const next = new Set(cur);
+                              if (next.has(u.id)) next.delete(u.id);
+                              else next.add(u.id);
+                              return next;
+                            })
+                          }
+                        >
+                          <ChevronDown size={18} />
+                        </button>
+                        <span
+                          className={`row-dot ${u.active !== false && isApproved(u) ? "on" : "off"}`}
+                          aria-hidden="true"
+                        />
+                        {u.role !== "doctor" && (
+                          <span className="row-role" aria-hidden="true">
+                            {roleLabels[u.role]}
+                          </span>
+                        )}
                         <div className="table-person">
                           <Avatar name={u.name} small />
                           <span>
@@ -471,6 +534,20 @@ export default function TeamView({
                 </tbody>
               </table>
             </div>
+            {!searching && filteredUsers.length > COMPACT && (
+              <button
+                type="button"
+                className="button button-secondary access-more"
+                onClick={() => setShowAllUsers(!showAllUsers)}
+              >
+                {showAllUsers
+                  ? "Mostrar menos"
+                  : `Mostrar todos (${filteredUsers.length})`}
+              </button>
+            )}
+            {searching && !filteredUsers.length && (
+              <p className="access-empty">Nenhuma pessoa encontrada.</p>
+            )}
           </section>
           <section className="content-card invites-section">
             <div className="section-heading card-heading">

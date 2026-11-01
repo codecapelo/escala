@@ -264,3 +264,99 @@
     overflow-x: visible;
   }
 }
+/* Access list: search, "show all" and compact rows that open on tap. */
+.access-search {
+  margin: 0 20px 14px;
+  max-width: 420px;
+}
+.access-more {
+  display: flex;
+  margin: 14px auto 18px;
+}
+.access-empty {
+  margin: 8px 20px 18px;
+  color: #6b7d6e;
+}
+.access-table .row-toggle,
+.access-table .row-dot,
+.access-table .row-role {
+  display: none;
+}
+@media (max-width: 720px) {
+  .access-search {
+    margin: 0 0 12px;
+    max-width: none;
+  }
+  .access-table tr {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+  }
+  .access-table tr.is-open {
+    padding: 12px 14px;
+  }
+  .access-table tr:not(.is-open) td:not([data-primary]) {
+    display: none;
+  }
+  .access-table td[data-primary] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+  }
+  .access-table .table-person {
+    order: 1;
+    flex: 1;
+    min-width: 0;
+  }
+  .access-table .row-role {
+    order: 2;
+    display: inline-block;
+    flex: none;
+    font-size: 11px;
+    color: #5f7253;
+    background: #eef2e8;
+    border-radius: 999px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .access-table .row-dot {
+    order: 3;
+    display: inline-block;
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #147d83;
+  }
+  .access-table .row-dot.off {
+    background: #c3cab8;
+  }
+  .access-table .row-toggle {
+    order: 4;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #6b7d6e;
+    cursor: pointer;
+  }
+  .access-table tr.is-open .row-toggle svg {
+    transform: rotate(180deg);
+  }
+  .access-table tr:not(.is-open) .table-person small {
+    display: none;
+  }
+  .access-table tr:not(.is-open) .table-person strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .access-table tr.is-open td[data-primary] {
+    padding-bottom: 8px;
+  }
+}
